@@ -501,7 +501,7 @@ async def root():
     return {"status": "running", "service": "Trading Dashboard API"}
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 async def health():
     return {
         "status": "healthy",
