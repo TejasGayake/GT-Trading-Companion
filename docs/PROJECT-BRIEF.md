@@ -163,22 +163,88 @@ Frontend proxies to backend via `"proxy": "http://localhost:8000"` in package.js
 
 ## How Deployment Works
 
-**Push to `master` → both services auto-deploy:**
-1. **Cloudflare Pages** detects push → runs `npm run build` → deploys frontend
-2. **Render** detects push → runs `pip install -r requirements.txt` → starts `uvicorn main:app`
+### The Auto-Deploy Pipeline
 
-**Important:** Changing `render.yaml` env vars does NOT update existing Render services. Must update manually on Render dashboard (Render → service → Environment → Save).
+Both services are connected to the GitHub repo and **auto-deploy on every push to `master`**. No manual deploy step needed.
 
-**Frontend env vars on Cloudflare Pages** (set BEFORE build):
-- `REACT_APP_API_URL` = `https://gt-trading-backend.onrender.com`
-- `REACT_APP_WS_URL` = `wss://gt-trading-backend.onrender.com`
+```
+git push origin master
+        │
+        ├──→ Cloudflare Pages detects push
+        │    1. Clones repo
+        │    2. Sets env vars (REACT_APP_API_URL, REACT_APP_WS_URL)
+        │    3. Runs: cd web_dashboard/frontend && npm run build
+        │    4. Deploys build/ output to CDN
+        │    5. Live at https://gt-trading-companion.tgayake3142.workers.dev/
+        │    ⏱ Takes 3-5 minutes
+        │
+        └──→ Render detects push
+             1. Clones repo
+             2. Runs: pip install -r web_dashboard/backend/requirements.txt
+             3. Runs: cd web_dashboard/backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+             4. Live at https://gt-trading-backend.onrender.com
+             ⏱ Takes 3-5 minutes (longer if cold start)
+```
 
-**Backend env vars on Render:**
-- `CORS_ORIGINS` = `https://gt-trading-companion.tgayake3142.workers.dev,http://localhost:3000`
-- `SUPABASE_URL` = (from Supabase dashboard)
-- `SUPABASE_SERVICE_ROLE_KEY` = `sb_secret_...` key (NOT legacy anon/service_role)
+### How to Deploy After Making Changes
 
-**UptimeRobot** pings `/api/health` every 5 min to prevent Render free tier cold starts.
+```bash
+# 1. Make your code changes
+# 2. Stage, commit, push — that's it
+git add <changed-files>
+git commit -m "Your commit message"
+git push
+# 3. Both services auto-deploy within 3-5 min
+```
+
+### How to Check Deploy Status
+
+| Service | Where to check |
+|---------|---------------|
+| **Cloudflare Pages** | https://dash.cloudflare.com → Pages → gt-trading-companion → Deployments |
+| **Render** | https://dashboard.render.com → gt-trading-backend → Logs |
+| **Backend health** | `curl https://gt-trading-backend.onrender.com/api/health` |
+| **Frontend live** | Open https://gt-trading-companion.tgayake3142.workers.dev/ |
+
+### Deploy Triggers
+
+- **Cloudflare Pages:** Any push to `master` that changes files under `web_dashboard/frontend/`. If only backend files changed, Pages still triggers but the build output is identical.
+- **Render:** Any push to `master`. Both backend-only and frontend-only changes trigger a full redeploy.
+
+### Important Notes
+
+- **`render.yaml` env vars don't update existing services.** Changing env vars in `render.yaml` only affects NEW service setups. For existing Render services, update manually: Render dashboard → service → Environment → edit → Save (triggers redeploy).
+- **Cloudflare Pages env vars must be set BEFORE build.** `REACT_APP_*` vars get baked into the JS bundle at build time. Setting them after deploy has no effect — you must redeploy.
+- **Both deploys are independent.** A frontend-only change still triggers a backend redeploy on Render (and vice versa). This is fine — both are idempotent.
+- **Render free tier has cold starts.** If no requests come in for ~15 min, the service spins down. UptimeRobot pings `/api/health` every 5 min to prevent this.
+
+### Frontend Environment Variables (Cloudflare Pages)
+
+Set at: Cloudflare Dashboard → Pages → gt-trading-companion → Settings → Environment variables
+
+| Key | Value |
+|-----|-------|
+| `REACT_APP_API_URL` | `https://gt-trading-backend.onrender.com` |
+| `REACT_APP_WS_URL` | `wss://gt-trading-backend.onrender.com` |
+| `DISABLE_ESLINT_PLUGIN` | `true` |
+
+### Backend Environment Variables (Render)
+
+Set at: Render Dashboard → gt-trading-backend → Environment
+
+| Key | Value |
+|-----|-------|
+| `CORS_ORIGINS` | `https://gt-trading-companion.tgayake3142.workers.dev,http://localhost:3000` |
+| `SUPABASE_URL` | (from Supabase dashboard → Settings → API) |
+| `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` (NOT legacy anon/service_role) |
+
+### UptimeRobot (Keep Render Awake)
+
+- URL: https://uptimerobot.com
+- Monitor type: HTTP(s)
+- URL to monitor: `https://gt-trading-backend.onrender.com/api/health`
+- Interval: every 5 minutes
+- This prevents Render free tier from spinning down due to inactivity
 
 ---
 
