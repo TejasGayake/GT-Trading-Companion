@@ -5,8 +5,30 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { createChart } from 'lightweight-charts';
 import { Plus, Trash2, Download, Search, Sun, Moon, Bell, AlertTriangle, X, RefreshCw, Menu, Save } from 'lucide-react';
 
+// Cloud-ready configuration
+const getApiUrl = () => {
+  if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
+  return `http://${window.location.hostname}:8000`;
+};
+
+const getWsUrl = () => {
+  if (process.env.REACT_APP_WS_URL) return process.env.REACT_APP_WS_URL;
+  return `ws://${window.location.hostname}:8000`;
+};
+
+const getUserId = () => {
+  let uid = localStorage.getItem('gt_user_id');
+  if (!uid) {
+    uid = crypto.randomUUID();
+    localStorage.setItem('gt_user_id', uid);
+  }
+  return uid;
+};
+
 // WebSocket connection
 let ws = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY = 30000;
 
 function App() {
   // State
@@ -97,19 +119,23 @@ function App() {
   }, [chartData, showChart]);
 
   const connectWebSocket = () => {
-    const wsUrl = `ws://${window.location.hostname}:8000/ws`;
+    const userId = getUserId();
+    const wsUrl = `${getWsUrl()}/ws?user_id=${userId}`;
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       setConnected(true);
+      reconnectAttempts = 0;
       addToast('Connected to server', 'success');
     };
 
     ws.onclose = () => {
       setConnected(false);
+      // Exponential backoff with max delay
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+      reconnectAttempts++;
       addToast('Disconnected from server', 'error');
-      // Reconnect after 3 seconds
-      setTimeout(connectWebSocket, 3000);
+      setTimeout(connectWebSocket, delay);
     };
 
     ws.onmessage = (event) => {
@@ -133,7 +159,7 @@ function App() {
 
   const fetchInstruments = async () => {
     try {
-      const response = await fetch('/api/instruments');
+      const response = await fetch(`${getApiUrl()}/api/instruments`);
       const data = await response.json();
       setInstruments(data.instruments || []);
     } catch (e) {
@@ -223,7 +249,7 @@ function App() {
 
     // Fetch candle data
     try {
-      const response = await fetch(`/api/candles/${token}`);
+      const response = await fetch(`${getApiUrl()}/api/candles/${token}`);
       const data = await response.json();
       setChartData(data.candles || []);
       setShowChart(true);
@@ -286,7 +312,8 @@ function App() {
     if (!newToken) return;
 
     try {
-      await fetch(`/api/tokens/add?token=${newToken}`, { method: 'POST' });
+      const userId = getUserId();
+      await fetch(`${getApiUrl()}/api/tokens/add?token=${newToken}&user_id=${userId}`, { method: 'POST' });
       addToast(`Added token ${newToken}`, 'success');
       setNewToken('');
       setShowAddToken(false);
@@ -298,7 +325,8 @@ function App() {
   // Remove token
   const handleRemoveToken = async (token) => {
     try {
-      await fetch(`/api/tokens/${token}`, { method: 'DELETE' });
+      const userId = getUserId();
+      await fetch(`${getApiUrl()}/api/tokens/${token}?user_id=${userId}`, { method: 'DELETE' });
       addToast(`Removed token ${token}`, 'success');
     } catch (e) {
       addToast('Failed to remove token', 'error');

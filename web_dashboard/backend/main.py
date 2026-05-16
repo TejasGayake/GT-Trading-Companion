@@ -5,6 +5,7 @@
 import asyncio
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List, Optional, Set
@@ -25,6 +26,8 @@ from utils.symbol_loader import SymbolLoader
 from indicators.calculator import calculate_all_indicators
 from utils.logger import get_logger
 from config.settings import config
+from storage import create_storage
+from rate_limiter import AsyncRateLimiter
 
 logger = get_logger('DashboardAPI')
 
@@ -87,32 +90,51 @@ class DashboardState:
         self.symbol_loader: Optional[SymbolLoader] = None
         self.websocket_clients: Set[WebSocket] = set()
         self.watchlists: Dict[str, List[str]] = {"Default": []}
+        self.user_watchlists: Dict[str, Dict[str, List[str]]] = {}
         self.active_tokens: Set[str] = set()
         self.token_data_cache: Dict[str, dict] = {}
         self.alerts: List[dict] = []
         self.last_update: float = 0
         self.running: bool = False
         self.yahoo_mapping: Dict[str, str] = {}
-        self.watchlist_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "watchlist.json")
         self.refresh_event: asyncio.Event = asyncio.Event()
+        self.start_time: float = time.time()
+        self.storage = None
+        self.rate_limiter: AsyncRateLimiter = AsyncRateLimiter(max_calls=30, period=60)
+        self.executor = ThreadPoolExecutor(max_workers=3)
+        self.current_user_id: str = "local"
 
-    def save_watchlist(self):
-        """Save watchlist to file"""
+    async def save_watchlist(self, user_id: Optional[str] = None):
+        """Save watchlist via storage backend"""
+        uid = user_id or self.current_user_id
         try:
-            with open(self.watchlist_file, 'w') as f:
-                json.dump(self.watchlists, f)
+            await self.storage.save(uid, self.watchlists)
         except Exception as e:
             logger.error(f"Error saving watchlist: {e}")
 
-    def load_watchlist(self):
-        """Load watchlist from file"""
+    async def load_watchlist(self, user_id: Optional[str] = None):
+        """Load watchlist via storage backend"""
+        uid = user_id or self.current_user_id
         try:
-            if os.path.exists(self.watchlist_file):
-                with open(self.watchlist_file, 'r') as f:
-                    self.watchlists = json.load(f)
-                    logger.info(f"Loaded watchlist: {len(self.watchlists.get('Default', []))} tokens")
+            loaded = await self.storage.load(uid)
+            if loaded:
+                self.watchlists = loaded
+                logger.info(f"Loaded watchlist: {len(self.watchlists.get('Default', []))} tokens")
         except Exception as e:
             logger.error(f"Error loading watchlist: {e}")
+
+    def rebuild_global_watchlists(self):
+        """Merge all user watchlists into the global watchlist for polling"""
+        merged: Dict[str, List[str]] = {}
+        for user_wl in self.user_watchlists.values():
+            for name, tokens in user_wl.items():
+                if name not in merged:
+                    merged[name] = []
+                for t in tokens:
+                    if t not in merged[name]:
+                        merged[name].append(t)
+        if merged:
+            self.watchlists = merged
 
     async def broadcast(self, message: dict):
         """Broadcast to all WebSocket clients"""
@@ -254,10 +276,17 @@ async def poll_data():
         try:
             tokens = state.watchlists.get("Default", [])[:200]  # Limit to 200
 
+            loop = asyncio.get_event_loop()
+
             for token in tokens:
                 try:
-                    # Get live quote
-                    quote = state.provider.get_live_quote(token)
+                    # Rate limit Yahoo Finance calls
+                    await state.rate_limiter.acquire()
+
+                    # Get live quote (non-blocking)
+                    quote = await loop.run_in_executor(
+                        state.executor, state.provider.get_live_quote, token
+                    )
                     if not quote:
                         # Update error in cache if token exists
                         if token in state.token_data_cache:
@@ -265,11 +294,15 @@ async def poll_data():
                             state.token_data_cache[token]["error_count"] = state.token_data_cache[token].get("error_count", 0) + 1
                         continue
 
-                    # Get candles for indicators
-                    candles = state.provider.get_candles(token, days=5, interval="5m")
+                    # Get candles for indicators (non-blocking)
+                    candles = await loop.run_in_executor(
+                        state.executor, state.provider.get_candles, token, 5, "5m"
+                    )
 
-                    # Get previous day data for proper Camarilla calculation
-                    prev_day = state.provider.get_previous_day_candles(token)
+                    # Get previous day data for proper Camarilla calculation (non-blocking)
+                    prev_day = await loop.run_in_executor(
+                        state.executor, state.provider.get_previous_day_candles, token
+                    )
 
                     # Calculate indicators
                     indicators = calculate_all_indicators(candles, quote, prev_day)
@@ -307,6 +340,10 @@ async def poll_data():
                                 "triggered_at": datetime.now().isoformat(),
                                 "status": "active"
                             })
+
+                            # Cap alerts to prevent memory leak
+                            if len(state.alerts) > 1000:
+                                state.alerts = state.alerts[-500:]
 
                             # Broadcast alert
                             await state.broadcast({
@@ -352,6 +389,9 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Trading Dashboard API...")
 
+    # Initialize storage
+    state.storage = create_storage()
+
     # Initialize
     symbol_csv_path = os.path.join(project_root, "..", "symbol_mapping.csv")
     state.symbol_loader = SymbolLoader(symbol_csv_path)
@@ -366,7 +406,7 @@ async def lifespan(app: FastAPI):
     state.provider = YahooFinanceProvider(state.yahoo_mapping)
 
     # Load saved watchlist (start empty if no saved watchlist)
-    state.load_watchlist()
+    await state.load_watchlist()
     if not state.watchlists.get("Default"):
         state.watchlists["Default"] = []  # Start empty - user adds stocks
 
@@ -378,6 +418,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     state.running = False
+    state.executor.shutdown(wait=False)
     logger.info("API stopped")
 
 
@@ -387,9 +428,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Trading Dashboard API", lifespan=lifespan)
 
+# CORS - configurable via env var for cloud deployment
+cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -401,16 +445,21 @@ app.add_middleware(
 # ===============================
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, user_id: str = Query("local")):
     await websocket.accept()
     state.websocket_clients.add(websocket)
 
     try:
+        # Load user's watchlists from storage
+        user_wl = await state.storage.load(user_id)
+        state.user_watchlists[user_id] = user_wl
+        state.rebuild_global_watchlists()
+
         # Send initial data
         await websocket.send_json({
             "type": "init",
             "data": list(state.token_data_cache.values()),
-            "watchlists": state.watchlists,
+            "watchlists": user_wl,
             "alerts": state.alerts[-50:],
             "alert_categories": _build_alert_categories()
         })
@@ -433,6 +482,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         state.websocket_clients.discard(websocket)
+        # Clean up user watchlist tracking
+        state.user_watchlists.pop(user_id, None)
+        state.rebuild_global_watchlists()
 
 
 # ===============================
@@ -455,7 +507,10 @@ async def health():
         "status": "healthy",
         "last_update": state.last_update,
         "active_tokens": len(state.token_data_cache),
-        "connected_clients": len(state.websocket_clients)
+        "connected_clients": len(state.websocket_clients),
+        "users_online": len(state.user_watchlists),
+        "uptime": time.time() - state.start_time,
+        "poll_running": state.running
     }
 
 
@@ -479,7 +534,10 @@ async def get_token_data(token: str):
 @app.get("/api/candles/{token}")
 async def get_candles(token: str, days: int = 5, interval: str = "5m"):
     """Get historical candles"""
-    candles = state.provider.get_candles(token, days=days, interval=interval)
+    loop = asyncio.get_event_loop()
+    candles = await loop.run_in_executor(
+        state.executor, state.provider.get_candles, token, days, interval
+    )
 
     chart_data = []
     for c in candles:
@@ -526,21 +584,36 @@ async def save_watchlist(watchlist: Watchlist):
 
 
 @app.post("/api/tokens/add")
-async def add_token(token: str, watchlist: str = "Default"):
+async def add_token(token: str, watchlist: str = "Default", user_id: str = Query("local")):
     """Add token to watchlist and trigger immediate data fetch"""
     if watchlist not in state.watchlists:
         state.watchlists[watchlist] = []
 
     if token not in state.watchlists[watchlist]:
         state.watchlists[watchlist].append(token)
-        state.save_watchlist()  # Save to file
 
-    # Fetch data for the new token immediately
+    # Update per-user watchlist and persist
+    if user_id not in state.user_watchlists:
+        state.user_watchlists[user_id] = {"Default": []}
+    if watchlist not in state.user_watchlists[user_id]:
+        state.user_watchlists[user_id][watchlist] = []
+    if token not in state.user_watchlists[user_id][watchlist]:
+        state.user_watchlists[user_id][watchlist].append(token)
+    await state.save_watchlist(user_id)
+
+    # Fetch data for the new token immediately (non-blocking)
     try:
-        quote = state.provider.get_live_quote(token)
+        loop = asyncio.get_event_loop()
+        quote = await loop.run_in_executor(
+            state.executor, state.provider.get_live_quote, token
+        )
         if quote:
-            candles = state.provider.get_candles(token, days=5, interval="5m")
-            prev_day = state.provider.get_previous_day_candles(token)
+            candles = await loop.run_in_executor(
+                state.executor, state.provider.get_candles, token, 5, "5m"
+            )
+            prev_day = await loop.run_in_executor(
+                state.executor, state.provider.get_previous_day_candles, token
+            )
             indicators = calculate_all_indicators(candles, quote, prev_day)
             symbol = state.provider.get_symbol(token)
 
@@ -570,11 +643,18 @@ async def add_token(token: str, watchlist: str = "Default"):
 
 
 @app.delete("/api/tokens/{token}")
-async def remove_token(token: str, watchlist: str = "Default"):
+async def remove_token(token: str, watchlist: str = "Default", user_id: str = Query("local")):
     """Remove token from watchlist (idempotent - returns success even if already removed)"""
     if token in state.watchlists.get(watchlist, []):
         state.watchlists[watchlist].remove(token)
-        state.save_watchlist()  # Save to file
+
+    # Update per-user watchlist and persist
+    if user_id in state.user_watchlists:
+        wl = state.user_watchlists[user_id].get(watchlist, [])
+        if token in wl:
+            wl.remove(token)
+    await state.save_watchlist(user_id)
+
     # Also remove from cache if present
     state.token_data_cache.pop(token, None)
     return {"success": True}

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: gt-trading-backend
+    runtime: python
+    buildCommand: pip install -r web_dashboard/backend/requirements.txt
+    startCommand: cd web_dashboard/backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: "https://gt-trading.pages.dev,http://localhost:3000"
+    plan: free
