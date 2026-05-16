@@ -52,6 +52,36 @@ function App() {
   const chartContainerRef = useRef();
   const chartRef = useRef(null);
 
+  // Format helpers
+  const formatPrice = (value) => value ? `₹${value.toFixed(2)}` : '-';
+  const formatChange = (value) => value ? (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2)) : '-';
+  const formatPercent = (value) => value ? (value > 0 ? `+${value.toFixed(2)}%` : `${value.toFixed(2)}%`) : '-';
+  const formatVolume = (value) => value ? value.toLocaleString() : '-';
+  const formatRSI = (value) => value ? value.toFixed(1) : '-';
+  const formatAlert = (value) => value || '';
+
+  const getPriceClass = (params) => {
+    if (params.value > 0) return 'cell-positive';
+    if (params.value < 0) return 'cell-negative';
+    return '';
+  };
+
+  const getPercentClass = (params) => {
+    if (params.value > 0) return 'cell-positive';
+    if (params.value < 0) return 'cell-negative';
+    return '';
+  };
+
+  const getRSIClass = (params) => {
+    if (params.value > 70) return 'cell-rsi-high';
+    if (params.value < 30) return 'cell-rsi-low';
+    return '';
+  };
+
+  const getAlertClass = (params) => {
+    return params.value ? 'cell-alert' : '';
+  };
+
   // Column definitions - matching Excel exactly
   const columnDefs = useMemo(() => [
     { headerName: 'TOKEN', field: 'token', width: 80, pinned: 'left' },
@@ -208,36 +238,6 @@ function App() {
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 5000);
-  };
-
-  // Format helpers
-  const formatPrice = (value) => value ? `₹${value.toFixed(2)}` : '-';
-  const formatChange = (value) => value ? (value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2)) : '-';
-  const formatPercent = (value) => value ? (value > 0 ? `+${value.toFixed(2)}%` : `${value.toFixed(2)}%`) : '-';
-  const formatVolume = (value) => value ? value.toLocaleString() : '-';
-  const formatRSI = (value) => value ? value.toFixed(1) : '-';
-  const formatAlert = (value) => value || '';
-
-  const getPriceClass = (params) => {
-    if (params.value > 0) return 'cell-positive';
-    if (params.value < 0) return 'cell-negative';
-    return '';
-  };
-
-  const getPercentClass = (params) => {
-    if (params.value > 0) return 'cell-positive';
-    if (params.value < 0) return 'cell-negative';
-    return '';
-  };
-
-  const getRSIClass = (params) => {
-    if (params.value > 70) return 'cell-rsi-high';
-    if (params.value < 30) return 'cell-rsi-low';
-    return '';
-  };
-
-  const getAlertClass = (params) => {
-    return params.value ? 'cell-alert' : '';
   };
 
   // Grid filter
