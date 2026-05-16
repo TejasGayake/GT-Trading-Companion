@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { createChart } from 'lightweight-charts';
-import { Plus, Trash2, Download, Search, Sun, Moon, Bell, AlertTriangle, X, RefreshCw, Menu, Save } from 'lucide-react';
+import { Plus, Download, Search, Sun, Moon, Bell, AlertTriangle, X } from 'lucide-react';
 
 // Cloud-ready configuration
 const getApiUrl = () => {
@@ -93,6 +93,7 @@ function App() {
   }), []);
 
   // Connect to WebSocket
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     connectWebSocket();
 
@@ -112,6 +113,7 @@ function App() {
   }, [theme]);
 
   // Update chart when data changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (showChart && chartData.length > 0) {
       renderChart();
@@ -152,6 +154,8 @@ function App() {
           break;
         case 'subscribed':
           console.log('Subscribed:', message.watchlist);
+          break;
+        default:
           break;
       }
     };
@@ -322,7 +326,8 @@ function App() {
     }
   };
 
-  // Remove token
+  // Remove token (available for future use)
+  // eslint-disable-next-line no-unused-vars
   const handleRemoveToken = async (token) => {
     try {
       const userId = getUserId();
