@@ -103,6 +103,8 @@ class DashboardState:
         self.rate_limiter: AsyncRateLimiter = AsyncRateLimiter(max_calls=30, period=60)
         self.executor = ThreadPoolExecutor(max_workers=3)
         self.current_user_id: str = "local"
+        self.alert_cooldown: Dict[str, float] = {}  # "token:alert_type" -> last_trigger_time
+        self.alert_cooldown_seconds: int = 300  # 5 minutes cooldown per alert type per token
 
     async def save_watchlist(self, user_id: Optional[str] = None):
         """Save watchlist via storage backend"""
@@ -280,10 +282,8 @@ async def poll_data():
 
             for token in tokens:
                 try:
-                    # Rate limit Yahoo Finance calls
+                    # Get live quote — always fetch (short cache, needs freshness)
                     await state.rate_limiter.acquire()
-
-                    # Get live quote (non-blocking)
                     quote = await loop.run_in_executor(
                         state.executor, state.provider.get_live_quote, token
                     )
@@ -294,15 +294,21 @@ async def poll_data():
                             state.token_data_cache[token]["error_count"] = state.token_data_cache[token].get("error_count", 0) + 1
                         continue
 
-                    # Get candles for indicators (non-blocking)
-                    candles = await loop.run_in_executor(
-                        state.executor, state.provider.get_candles, token, 5, "5m"
-                    )
+                    # Get candles — only fetch when cache is stale (saves API calls)
+                    candles = state.provider.get_cached_candles(token)
+                    if candles is None:
+                        await state.rate_limiter.acquire()
+                        candles = await loop.run_in_executor(
+                            state.executor, state.provider.get_candles, token, 5, "5m"
+                        )
 
-                    # Get previous day data for proper Camarilla calculation (non-blocking)
-                    prev_day = await loop.run_in_executor(
-                        state.executor, state.provider.get_previous_day_candles, token
-                    )
+                    # Get previous day data — only fetch when cache is stale (1h cache)
+                    prev_day = state.provider.get_cached_prev_day(token)
+                    if prev_day is None:
+                        await state.rate_limiter.acquire()
+                        prev_day = await loop.run_in_executor(
+                            state.executor, state.provider.get_previous_day_candles, token
+                        )
 
                     # Calculate indicators
                     indicators = calculate_all_indicators(candles, quote, prev_day)
@@ -324,12 +330,19 @@ async def poll_data():
                     # Store in cache
                     state.token_data_cache[token] = row
 
-                    # Check for new alerts
+                    # Check for new alerts with cooldown
                     if row.get("alert"):
-                        # Check if this is a new alert
-                        existing = state.alerts and state.alerts[-1].get("token") == token
-                        if not existing or state.alerts[-1].get("alert") != row["alert"]:
-                            # New alert
+                        # Extract alert type from condition string (e.g., "VOLUME SPIKE" from "VOLUME SPIKE - 3.2x")
+                        alert_type = row["alert"].split(" - ")[0].split(":")[0].strip()
+                        cooldown_key = f"{token}:{alert_type}"
+                        now = time.time()
+
+                        # Check cooldown
+                        last_triggered = state.alert_cooldown.get(cooldown_key, 0)
+                        if now - last_triggered > state.alert_cooldown_seconds:
+                            # Update cooldown
+                            state.alert_cooldown[cooldown_key] = now
+
                             state.alerts.append({
                                 "token": token,
                                 "symbol": symbol,
@@ -601,19 +614,26 @@ async def add_token(token: str, watchlist: str = "Default", user_id: str = Query
         state.user_watchlists[user_id][watchlist].append(token)
     await state.save_watchlist(user_id)
 
-    # Fetch data for the new token immediately (non-blocking)
+    # Fetch data for the new token immediately (non-blocking, rate-limited)
     try:
         loop = asyncio.get_event_loop()
+        await state.rate_limiter.acquire()
         quote = await loop.run_in_executor(
             state.executor, state.provider.get_live_quote, token
         )
         if quote:
-            candles = await loop.run_in_executor(
-                state.executor, state.provider.get_candles, token, 5, "5m"
-            )
-            prev_day = await loop.run_in_executor(
-                state.executor, state.provider.get_previous_day_candles, token
-            )
+            candles = state.provider.get_cached_candles(token)
+            if candles is None:
+                await state.rate_limiter.acquire()
+                candles = await loop.run_in_executor(
+                    state.executor, state.provider.get_candles, token, 5, "5m"
+                )
+            prev_day = state.provider.get_cached_prev_day(token)
+            if prev_day is None:
+                await state.rate_limiter.acquire()
+                prev_day = await loop.run_in_executor(
+                    state.executor, state.provider.get_previous_day_candles, token
+                )
             indicators = calculate_all_indicators(candles, quote, prev_day)
             symbol = state.provider.get_symbol(token)
 

@@ -16,6 +16,30 @@ import threading
 from utils.logger import get_logger
 
 
+def _retry_on_rate_limit(max_retries: int = 3, base_delay: float = 2.0):
+    """Decorator that retries Yahoo API calls with exponential backoff on 429/rate limit errors."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            self = args[0]  # First arg is self (YahooFinanceProvider)
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if "too many requests" in error_str or "429" in error_str or "rate limit" in error_str:
+                        last_error = e
+                        delay = base_delay * (2 ** attempt)  # 2s, 4s, 8s
+                        self.logger.warning(f"Rate limited on {func.__name__}, retry {attempt+1}/{max_retries} after {delay:.0f}s")
+                        time.sleep(delay)
+                    else:
+                        raise  # Non-rate-limit error, propagate immediately
+            # All retries exhausted
+            raise last_error
+        return wrapper
+    return decorator
+
+
 class YahooFinanceProvider:
     """Yahoo Finance data provider with caching"""
 
@@ -33,8 +57,8 @@ class YahooFinanceProvider:
         self._candle_cache: Dict[str, tuple] = {}  # (timestamp, data)
         self._quote_cache: Dict[str, tuple] = {}   # (timestamp, data)
         self._prev_day_cache: Dict[str, tuple] = {}  # (timestamp, data) for previous day
-        self.CACHE_DURATION = 60  # 1 minute for candles (more responsive)
-        self.QUOTE_CACHE_DURATION = 2  # 2 seconds for quotes
+        self.CACHE_DURATION = 120  # 2 minutes for candles
+        self.QUOTE_CACHE_DURATION = 10  # 10 seconds for quotes (was 2s, caused excessive API hits)
         self.PREV_DAY_CACHE_DURATION = 3600  # 1 hour for previous day data
 
         self.logger.info("YahooFinanceProvider initialized (no API key needed)")
@@ -53,6 +77,7 @@ class YahooFinanceProvider:
         # Default: add .NS suffix
         return f"{token}.NS"
 
+    @_retry_on_rate_limit(max_retries=3, base_delay=2.0)
     def get_candles(self, token: str, days: int = 5, interval: str = "5m") -> Optional[List]:
         """
         Fetch historical candles matching Angel One format.
@@ -111,6 +136,7 @@ class YahooFinanceProvider:
             self.logger.error(f"Error fetching candles for {token}: {e}")
             return None
 
+    @_retry_on_rate_limit(max_retries=3, base_delay=2.0)
     def get_previous_day_candles(self, token: str) -> Optional[Dict]:
         """
         Get previous day's OHLC for Camarilla pivot calculation.
@@ -156,6 +182,7 @@ class YahooFinanceProvider:
             self.logger.error(f"Error fetching previous day data for {token}: {e}")
             return None
 
+    @_retry_on_rate_limit(max_retries=3, base_delay=2.0)
     def get_live_quote(self, token: str) -> Optional[Dict]:
         """
         Get current live quote for a token.
@@ -281,6 +308,55 @@ class YahooFinanceProvider:
         """Load symbols - simplified for Yahoo Finance"""
         self.logger.info(f"Yahoo Finance - using {len(self.symbol_mapping)} symbol mappings")
         return True
+
+    def is_quote_cache_fresh(self, token: str) -> bool:
+        """Check if quote cache is still fresh (avoids unnecessary API calls)"""
+        if token in self._quote_cache:
+            ts, _ = self._quote_cache[token]
+            return time.time() - ts < self.QUOTE_CACHE_DURATION
+        return False
+
+    def is_candle_cache_fresh(self, token: str, interval: str = "5m", days: int = 5) -> bool:
+        """Check if candle cache is still fresh"""
+        cache_key = f"candles_{token}_{interval}_{days}"
+        if cache_key in self._candle_cache:
+            ts, _ = self._candle_cache[cache_key]
+            return time.time() - ts < self.CACHE_DURATION
+        return False
+
+    def is_prev_day_cache_fresh(self, token: str) -> bool:
+        """Check if previous day cache is still fresh"""
+        cache_key = f"prev_day_{token}"
+        if cache_key in self._prev_day_cache:
+            ts, _ = self._prev_day_cache[cache_key]
+            return time.time() - ts < self.PREV_DAY_CACHE_DURATION
+        return False
+
+    def get_cached_quote(self, token: str) -> Optional[Dict]:
+        """Get quote from cache if fresh, otherwise None"""
+        if token in self._quote_cache:
+            ts, data = self._quote_cache[token]
+            if time.time() - ts < self.QUOTE_CACHE_DURATION:
+                return data
+        return None
+
+    def get_cached_candles(self, token: str, interval: str = "5m", days: int = 5) -> Optional[List]:
+        """Get candles from cache if fresh, otherwise None"""
+        cache_key = f"candles_{token}_{interval}_{days}"
+        if cache_key in self._candle_cache:
+            ts, data = self._candle_cache[cache_key]
+            if time.time() - ts < self.CACHE_DURATION:
+                return data
+        return None
+
+    def get_cached_prev_day(self, token: str) -> Optional[Dict]:
+        """Get previous day data from cache if fresh, otherwise None"""
+        cache_key = f"prev_day_{token}"
+        if cache_key in self._prev_day_cache:
+            ts, data = self._prev_day_cache[cache_key]
+            if time.time() - ts < self.PREV_DAY_CACHE_DURATION:
+                return data
+        return None
 
     def close(self):
         """Cleanup"""

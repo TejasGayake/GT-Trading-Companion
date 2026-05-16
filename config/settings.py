@@ -23,7 +23,7 @@ class AppConfig:
     MAX_RETRIES: int = 3
 
     # Dashboard settings
-    POLL_INTERVAL: float = 2.0  # seconds between data polls
+    POLL_INTERVAL: float = 5.0  # seconds between data polls (was 2s, caused Yahoo rate limits)
     MAX_WATCHLIST_TOKENS: int = 200  # max tokens per watchlist
     CANDLE_CACHE_DURATION: int = 60  # seconds to cache candle data
     

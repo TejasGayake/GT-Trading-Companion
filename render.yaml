@@ -12,5 +12,5 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: "https://gt-trading.pages.dev,http://localhost:3000"
+        value: "https://gt-trading-companion.tgayake3142.workers.dev,http://localhost:3000"
     plan: free
