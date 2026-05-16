@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trading Dashboard - Excel Style</title>
+
+  <!-- AG Grid -->
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.0/dist/ag-grid-community.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.0/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.0.0/styles/ag-theme-alpine.css">
+
+  <!-- Lightweight Charts -->
+  <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-color: #1a1a1a;
+      --text-color: #e0e0e0;
+      --border-color: #333;
+      --header-bg: #252525;
+      --toolbar-bg: #2a2a2a;
+      --positive: #4caf50;
+      --negative: #f44336;
+      --warning: #ff9800;
+      --info: #2196f3;
+      --alert-bg: #2e1a1a;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: var(--toolbar-bg);
+      border-bottom: 1px solid var(--border-color);
+      flex-wrap: wrap;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--header-bg);
+      color: var(--text-color);
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .btn:hover { background: var(--border-color); }
+    .btn.primary { background: #1976d2; border-color: #1976d2; }
+    .btn.primary:hover { background: #1565c0; }
+
+    .search-input {
+      padding: 8px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--header-bg);
+      color: var(--text-color);
+      width: 220px;
+      font-size: 13px;
+    }
+
+    .search-input:focus { outline: none; border-color: #1976d2; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 12px;
+    }
+
+    .tab {
+      padding: 12px 24px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-color);
+      font-size: 14px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab:hover { background: var(--border-color); }
+    .tab.active { border-bottom-color: #1976d2; color: #1976d2; }
+
+    /* Content */
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sheet {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sheet.active { display: flex; }
+
+    /* Grid */
+    #grid {
+      flex: 1;
+      width: 100%;
+    }
+
+    /* Status Bar */
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 16px;
+      background: var(--header-bg);
+      border-top: 1px solid var(--border-color);
+      font-size: 12px;
+      color: #888;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--positive);
+    }
+
+    .status-dot.disconnected { background: var(--negative); }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: var(--header-bg);
+      padding: 24px;
+      border-radius: 8px;
+      min-width: 400px;
+    }
+
+    .modal h3 { margin-bottom: 16px; }
+
+    .modal input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--bg-color);
+      color: var(--text-color);
+      font-size: 14px;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+
+    /* Alerts Panel */
+    .alerts-panel {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+      height: 0; /* Important for flex scrolling */
+    }
+
+    .alert-card {
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+    }
+
+    .alert-card .remove-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 8px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .alert-card:hover .remove-btn {
+      opacity: 1;
+    }
+
+    .alert-card .remove-btn:hover {
+      color: var(--negative);
+    }
+
+    .alert-card.h4 { background: rgba(76,175,80,0.2); border-left: 4px solid var(--positive); }
+    .alert-card.l4 { background: rgba(244,67,54,0.2); border-left: 4px solid var(--negative); }
+    .alert-card.overbought { background: rgba(255,152,0,0.2); border-left: 4px solid var(--warning); }
+    .alert-card.oversold { background: rgba(33,150,243,0.2); border-left: 4px solid var(--info); }
+
+    /* Status indicators */
+    .status-ok { color: var(--positive); }
+    .status-error { color: var(--negative); font-weight: bold; }
+
+    /* Alerts Columns Layout */
+    .alerts-columns {
+      display: flex;
+      flex: 1;
+      gap: 1px;
+      background: var(--border-color);
+      overflow: hidden;
+    }
+
+    .alert-column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-color);
+      overflow: hidden;
+    }
+
+    .alert-column-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .alert-count {
+      margin-left: auto;
+      background: var(--warning);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+
+    .alert-column-content {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+    }
+
+    .alert-stock-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      background: var(--header-bg);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .alert-stock-item:hover {
+      background: var(--border-color);
+    }
+
+    .alert-stock-item .symbol {
+      font-weight: 600;
+    }
+
+    .alert-stock-item .ltp {
+      color: var(--positive);
+      font-weight: 600;
+    }
+
+    .alert-stock-item .condition {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: var(--warning);
+      color: white;
+    }
+
+    .alert-stock-item.volume-spike .condition {
+      background: var(--info);
+    }
+
+    .alert-stock-item.camarilla-above .condition {
+      background: var(--positive);
+    }
+
+    .alert-stock-item.camarilla-below .condition {
+      background: var(--negative);
+    }
+
+    /* Toast */
+    .toast-container {
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      z-index: 1001;
+    }
+
+    .toast {
+      padding: 12px 20px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      animation: slideIn 0.3s ease;
+    }
+
+    .toast.success { background: var(--positive); color: white; }
+    .toast.error { background: var(--negative); color: white; }
+    .toast.warning { background: var(--warning); color: white; }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Cell styling */
+    .positive { color: var(--positive) !important; }
+    .negative { color: var(--negative) !important; }
+    .rsi-high { background: #ff572233 !important; color: var(--warning) !important; }
+    .rsi-low { background: #2196f333 !important; color: var(--info) !important; }
+    .has-alert { background: var(--alert-bg) !important; }
+
+    /* Chart Modal */
+    .chart-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .chart-modal.active { display: flex; }
+
+    .chart-content {
+      background: var(--header-bg);
+      padding: 20px;
+      border-radius: 8px;
+      width: 90%;
+      max-width: 1000px;
+      max-height: 80vh;
+      overflow: auto;
+    }
+
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: var(--text-color);
+      cursor: pointer;
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button class="btn primary" onclick="showAddTokenModal()">
+          <i class="ph ph-plus"></i> Add
+        </button>
+        <button class="btn" onclick="showRemoveTokenModal()">
+          <i class="ph ph-minus"></i> Remove
+        </button>
+        <button class="btn" onclick="exportCSV()">
+          <i class="ph ph-download-simple"></i> Export
+        </button>
+        <button class="btn" onclick="clearAlerts()">
+          <i class="ph ph-trash"></i> Clear
+        </button>
+      </div>
+
+      <div class="toolbar-group">
+        <i class="ph ph-magnifying-glass" style="color: #888;"></i>
+        <input type="text" class="search-input" placeholder="Search symbol or token..." id="searchInput" oninput="onSearch()">
+      </div>
+
+      <div class="toolbar-group" style="margin-left: auto;">
+        <button class="btn" onclick="toggleTheme()" id="themeBtn">
+          <i class="ph ph-sun"></i>
+        </button>
+        <button class="btn" onclick="refreshData()">
+          <i class="ph ph-arrow-clockwise"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('live')">📊 Live Data</button>
+      <button class="tab" onclick="switchTab('instruments')">📋 Instruments</button>
+      <button class="tab" onclick="switchTab('alerts')">🔔 Alerts <span id="totalAlertCount">(0)</span></button>
+      <button class="tab" onclick="switchTab('historical')">📈 Historical</button>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <!-- Live Data Sheet -->
+      <div class="sheet active" id="sheet-live">
+        <div id="grid" class="ag-theme-alpine-dark"></div>
+      </div>
+
+      <!-- Instruments Sheet -->
+      <div class="sheet" id="sheet-instruments">
+        <div class="alerts-panel">
+          <h3>Available Instruments</h3>
+          <p style="color: #888; margin: 8px 0 16px;">Total tokens: <span id="tokenCount">0</span></p>
+          <div id="instrumentsList" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+        </div>
+      </div>
+
+      <!-- Alerts Sheet - 3 Columns -->
+      <div class="sheet" id="sheet-alerts">
+        <div class="alerts-columns">
+          <!-- Volume Spike Column -->
+          <div class="alert-column">
+            <div class="alert-column-header">
+              <span class="ph ph-chart-line-up"></span>
+              Volume Spike
+              <span class="alert-count" id="volumeSpikeCount">(0)</span>
+            </div>
+            <div class="alert-column-content" id="volumeSpikeList">
+              <p style="color: #888;">No volume spike alerts</p>
+            </div>
+          </div>
+
+          <!-- Camarilla Column -->
+          <div class="alert-column">
+            <div class="alert-column-header">
+              <span class="ph ph-target"></span>
+              Camarilla
+              <span class="alert-count" id="camarillaCount">(0)</span>
+            </div>
+            <div class="alert-column-content" id="camarillaList">
+              <p style="color: #888;">No camarilla alerts</p>
+            </div>
+          </div>
+
+          <!-- Volume SMA8 Column -->
+          <div class="alert-column">
+            <div class="alert-column-header">
+              <span class="ph ph-trend-up"></span>
+              Volume > 3x SMA8
+              <span class="alert-count" id="volumeSma8Count">(0)</span>
+            </div>
+            <div class="alert-column-content" id="volumeSma8List">
+              <p style="color: #888;">No volume SMA8 alerts</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historical Sheet -->
+      <div class="sheet" id="sheet-historical">
+        <div class="alerts-panel">
+          <h3>Historical Data</h3>
+          <p style="color: #888;">Double-click any row in Live Data to view candlestick charts</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="status-dot" id="connectionDot"></span>
+        <span id="connectionStatus">Connecting...</span>
+      </div>
+      <div class="status-item">Last Update: <span id="lastUpdate">-</span></div>
+      <div class="status-item">Active Alerts: <span id="activeAlerts">0</span></div>
+      <div class="status-item">Rows: <span id="rowCount">0</span></div>
+    </div>
+  </div>
+
+  <!-- Add Token Modal with Search -->
+  <div class="modal-overlay" id="addTokenModal">
+    <div class="modal" style="min-width: 500px;">
+      <h3>Add Stock to Watchlist</h3>
+      <input type="text" id="symbolSearch" class="search-input" style="width: 100%; margin-bottom: 8px;" placeholder="Search by symbol name (e.g., RELIANCE, TCS)..." oninput="searchSymbols()">
+      <div id="symbolResults" style="max-height: 250px; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 4px;"></div>
+      <div class="modal-buttons">
+        <button class="btn" onclick="closeAddTokenModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Remove Token Modal -->
+  <div class="modal-overlay" id="removeTokenModal">
+    <div class="modal">
+      <h3>Remove Token</h3>
+      <input type="text" id="removeTokenSearch" class="search-input" placeholder="Search by symbol..." style="width: 100%; margin-bottom: 12px;" oninput="filterRemoveTokenList()">
+      <div id="removeTokenList" style="max-height: 250px; overflow-y: auto; margin-bottom: 16px;"></div>
+      <div class="modal-buttons">
+        <button class="btn" onclick="closeRemoveTokenModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart Modal -->
+  <div class="chart-modal" id="chartModal">
+    <div class="chart-content">
+      <div class="chart-header">
+        <h3 id="chartTitle">Chart</h3>
+        <button class="close-btn" onclick="closeChart()">×</button>
+      </div>
+      <div id="chartContainer" style="height: 400px;"></div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    // Global state
+    let gridApi = null;
+    let ws = null;
+    let rowData = [];
+    let alerts = [];
+    let theme = 'dark';
+    let chart = null;
+
+    // Column definitions - 29 columns matching Excel
+    const columnDefs = [
+      { headerName: 'TOKEN', field: 'token', width: 80, pinned: 'left' },
+      { headerName: 'SYMBOL', field: 'symbol', width: 120, pinned: 'left' },
+      { headerName: 'LTP', field: 'ltp', width: 90, valueFormatter: formatPrice, cellClass: getPriceClass },
+      { headerName: 'OPEN', field: 'open', width: 90, valueFormatter: formatPrice },
+      { headerName: 'HIGH', field: 'high', width: 90, valueFormatter: formatPrice },
+      { headerName: 'LOW', field: 'low', width: 90, valueFormatter: formatPrice },
+      { headerName: 'PREV CLOSE', field: 'prev_close', width: 100, valueFormatter: formatPrice },
+      { headerName: 'CHANGE', field: 'change', width: 100, valueFormatter: formatChange, cellClass: getChangeClass },
+      { headerName: '%CHANGE', field: 'change_percent', width: 90, valueFormatter: formatPercent, cellClass: getPercentClass },
+      { headerName: 'VOLUME', field: 'volume', width: 120, valueFormatter: formatVolume },
+      { headerName: 'AVG VOL', field: 'avg_volume', width: 100, valueFormatter: formatVolume },
+      { headerName: 'SMA8', field: 'sma8', width: 80, valueFormatter: formatVolume },
+      { headerName: 'VWAP', field: 'vwap', width: 90, valueFormatter: formatPrice },
+      { headerName: 'SMA21', field: 'sma21', width: 90, valueFormatter: formatPrice },
+      { headerName: 'SMA40', field: 'sma40', width: 90, valueFormatter: formatPrice },
+      { headerName: 'SMA200', field: 'sma200', width: 100, valueFormatter: formatPrice },
+      { headerName: 'EMA10', field: 'ema10', width: 90, valueFormatter: formatPrice },
+      { headerName: 'RSI14', field: 'rsi14', width: 80, valueFormatter: formatRSI, cellClass: getRSIClass },
+      { headerName: 'SUPERTREND', field: 'supertrend', width: 110, valueFormatter: formatPrice },
+      { headerName: 'S. DIR', field: 'supertrend_direction', width: 70 },
+      { headerName: 'C.H4', field: 'Camarilla_H4', width: 90, valueFormatter: formatPrice },
+      { headerName: 'C.H3', field: 'Camarilla_H3', width: 90, valueFormatter: formatPrice },
+      { headerName: 'C.L3', field: 'Camarilla_L3', width: 90, valueFormatter: formatPrice },
+      { headerName: 'C.L4', field: 'Camarilla_L4', width: 90, valueFormatter: formatPrice },
+      { headerName: 'SUPPORT', field: 'support', width: 100, valueFormatter: formatPrice },
+      { headerName: 'RESISTANCE', field: 'resistance', width: 110, valueFormatter: formatPrice },
+      { headerName: 'VOLATILITY', field: 'volatility', width: 100, valueFormatter: formatVolatility },
+      { headerName: 'PD HIGH', field: 'prev_day_high', width: 100, valueFormatter: formatPrice },
+      { headerName: 'PD LOW', field: 'prev_day_low', width: 90, valueFormatter: formatPrice },
+      { headerName: 'ALERT', field: 'alert', width: 120, valueFormatter: formatAlert, cellClass: getAlertClass },
+      { headerName: 'STATUS', field: 'last_error', width: 90, valueFormatter: formatStatus, cellClass: getStatusClass },
+    ];
+
+    const defaultColDef = {
+      sortable: true,
+      filter: true,
+      resizable: true,
+    };
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      initGrid();
+      connectWebSocket();
+      initKeyboardShortcuts();
+    });
+
+    // Keyboard shortcuts
+    function initKeyboardShortcuts() {
+      document.addEventListener('keydown', (e) => {
+        // Ctrl+F or / to focus search (if not already in an input)
+        if ((e.ctrlKey && e.key === 'f') || (e.key === '/' && !isInputFocused())) {
+          e.preventDefault();
+          const searchInput = document.getElementById('searchInput');
+          if (searchInput) searchInput.focus();
+        }
+
+        // Escape to close modals
+        if (e.key === 'Escape') {
+          closeAddTokenModal();
+          closeRemoveTokenModal();
+          closeChart();
+        }
+
+        // F5 to refresh data
+        if (e.key === 'F5') {
+          e.preventDefault();
+          refreshData();
+        }
+
+        // Ctrl+A to open add token modal
+        if (e.ctrlKey && e.key === 'a' && !isInputFocused()) {
+          e.preventDefault();
+          openAddTokenModal();
+        }
+      });
+    }
+
+    function isInputFocused() {
+      const active = document.activeElement;
+      return active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+    }
+
+    // Initialize AG Grid
+    function initGrid() {
+      const gridDiv = document.getElementById('grid');
+      gridApi = agGrid.createGrid(gridDiv, {
+        rowData: [],
+        columnDefs: columnDefs,
+        defaultColDef: defaultColDef,
+        rowHeight: 32,
+        headerHeight: 32,
+        animateRows: true,
+        getRowId: (params) => params.data.token,
+        onRowDoubleClicked: onRowDoubleClick,
+        suppressCellFocus: true,
+      });
+    }
+
+    // WebSocket connection with exponential backoff
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
+    const BASE_RECONNECT_DELAY = 1000; // 1 second base
+
+    function connectWebSocket() {
+      const wsUrl = 'ws://localhost:8000/ws';
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        document.getElementById('connectionDot').classList.remove('disconnected');
+        document.getElementById('connectionStatus').textContent = 'Connected';
+        reconnectAttempts = 0; // Reset on successful connection
+        showToast('Connected to server', 'success');
+      };
+
+      ws.onclose = () => {
+        document.getElementById('connectionDot').classList.add('disconnected');
+        document.getElementById('connectionStatus').textContent = 'Disconnected';
+
+        // Exponential backoff with jitter
+        reconnectAttempts++;
+        const delay = Math.min(
+          BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts) + Math.random() * 1000,
+          MAX_RECONNECT_DELAY
+        );
+        document.getElementById('connectionStatus').textContent = `Reconnecting in ${Math.round(delay/1000)}s...`;
+        setTimeout(connectWebSocket, delay);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        document.getElementById('connectionDot').classList.add('disconnected');
+        document.getElementById('connectionStatus').textContent = 'Connection error';
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === 'init' || msg.type === 'update') {
+          rowData = msg.data;
+          gridApi.setGridOption('rowData', rowData);
+          document.getElementById('rowCount').textContent = rowData.length;
+          document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+
+          if (msg.watchlists && msg.watchlists.Default) {
+            loadInstruments(msg.watchlists.Default);
+          }
+
+          // Update alerts columns
+          if (msg.alert_categories) {
+            updateAlertsColumns(msg.alert_categories);
+          }
+        }
+
+        if (msg.type === 'subscribed') {
+          // Refresh acknowledged - data will arrive via next update message
+          console.log('Subscribed to watchlist:', msg.watchlist);
+        }
+
+        if (msg.type === 'alert') {
+          handleNewAlert(msg.data);
+        }
+      };
+    }
+
+    // Update alerts columns with categorized data
+    function updateAlertsColumns(categories) {
+      // Volume Spike
+      const volumeSpikeList = document.getElementById('volumeSpikeList');
+      const volumeSpikeStocks = categories.volume_spike || [];
+      document.getElementById('volumeSpikeCount').textContent = `(${volumeSpikeStocks.length})`;
+
+      // Update total alerts count in tab and status bar
+      const totalAlerts = (categories.camarilla?.length || 0) +
+                          (categories.volume_spike?.length || 0) +
+                          (categories.volume_sma8?.length || 0);
+      document.getElementById('totalAlertCount').textContent = `(${totalAlerts})`;
+      document.getElementById('activeAlerts').textContent = totalAlerts;
+
+      if (volumeSpikeStocks.length === 0) {
+        volumeSpikeList.innerHTML = '<p style="color: #888;">No volume spike alerts</p>';
+      } else {
+        volumeSpikeList.innerHTML = volumeSpikeStocks.map(s => `
+          <div class="alert-stock-item volume-spike" onclick="selectStock('${s.token}')">
+            <div>
+              <div class="symbol">${s.symbol}</div>
+              <div style="font-size: 11px; color: #888;">Vol: ${s.volume?.toLocaleString()}</div>
+            </div>
+            <div>
+              <span class="ltp">₹${s.ltp?.toFixed(2)}</span>
+              <span class="condition" style="margin-left: 8px;">SPIKE</span>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // Camarilla
+      const camarillaList = document.getElementById('camarillaList');
+      const camarillaStocks = categories.camarilla || [];
+      document.getElementById('camarillaCount').textContent = `(${camarillaStocks.length})`;
+
+      if (camarillaStocks.length === 0) {
+        camarillaList.innerHTML = '<p style="color: #888;">No camarilla alerts</p>';
+      } else {
+        camarillaList.innerHTML = camarillaStocks.map(s => {
+          const isAbove = s.condition === 'ABOVE H4';
+          return `
+          <div class="alert-stock-item ${isAbove ? 'camarilla-above' : 'camarilla-below'}" onclick="selectStock('${s.token}')">
+            <div>
+              <div class="symbol">${s.symbol}</div>
+              <div style="font-size: 11px; color: #888;">H4: ₹${s.Camarilla_H4?.toFixed(2)} | L4: ₹${s.Camarilla_L4?.toFixed(2)}</div>
+            </div>
+            <div>
+              <span class="ltp">₹${s.ltp?.toFixed(2)}</span>
+              <span class="condition" style="margin-left: 8px;">${s.condition}</span>
+            </div>
+          </div>
+        `}).join('');
+      }
+
+      // Volume SMA8
+      const volumeSma8List = document.getElementById('volumeSma8List');
+      const volumeSma8Stocks = categories.volume_sma8 || [];
+      document.getElementById('volumeSma8Count').textContent = `(${volumeSma8Stocks.length})`;
+
+      if (volumeSma8Stocks.length === 0) {
+        volumeSma8List.innerHTML = '<p style="color: #888;">No volume SMA8 alerts</p>';
+      } else {
+        volumeSma8List.innerHTML = volumeSma8Stocks.map(s => `
+          <div class="alert-stock-item" onclick="selectStock('${s.token}')">
+            <div>
+              <div class="symbol">${s.symbol}</div>
+              <div style="font-size: 11px; color: #888;">Vol SMA8: ${s.volume_sma8?.toLocaleString()}</div>
+            </div>
+            <div>
+              <span class="ltp">₹${s.ltp?.toFixed(2)}</span>
+              <span class="condition" style="margin-left: 8px;">3x</span>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Select stock from alerts column
+    function selectStock(token) {
+      // Switch to live data tab
+      switchTab('live');
+      // Filter for this token
+      document.getElementById('searchInput').value = token;
+      onSearch();
+    }
+
+    // Handle new alert
+    function handleNewAlert(alert) {
+      alerts.unshift(alert);
+      if (alerts.length > 50) alerts.pop();
+      updateAlertsUI();
+      // showToast(`${alert.symbol}: ${alert.condition}`, 'warning'); // popup disabled
+      playAlertSound(alert.condition);
+    }
+
+    // Play alert sound
+    function playAlertSound(condition) {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.frequency.value = condition === 'ABOVE H4' ? 800 : 400;
+        oscillator.type = 'sine';
+        gainNode.gain.value = 0.1;
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.3);
+      } catch (e) {}
+    }
+
+    // Update alerts UI - update counts and recent alerts list
+    function updateAlertsUI() {
+      const activeAlerts = alerts.filter(a => a.status === 'active');
+
+      // Update total alert count in tab
+      document.getElementById('totalAlertCount').textContent = `(${alerts.length})`;
+      document.getElementById('activeAlerts').textContent = activeAlerts.length;
+    }
+
+    // Remove single alert
+    function removeAlert(index) {
+      alerts.splice(index, 1);
+      updateAlertsUI();
+      showToast('Alert removed', 'success');
+    }
+
+    // Load instruments
+    function loadInstruments(tokens) {
+      // Use rowData to show instruments (tokens that have data)
+      const container = document.getElementById('instrumentsList');
+      const displayData = rowData.slice(0, 100);
+
+      document.getElementById('tokenCount').textContent = displayData.length;
+
+      container.innerHTML = displayData.map(i =>
+        `<div style="padding: 6px 12px; background: var(--border-color); border-radius: 4px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; min-width: 140px;">
+          <span>${i.symbol} <span style="color: #888;">${i.token}</span></span>
+          <button onclick="removeTokenFromInstruments('${i.token}')" style="background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 2px 6px;">×</button>
+        </div>`
+      ).join('');
+    }
+
+    // Remove token from instruments tab
+    async function removeTokenFromInstruments(token) {
+      try {
+        await fetch(`/api/tokens/${token}`, { method: 'DELETE' });
+        showToast(`Removed token ${token}`, 'success');
+
+        // Remove from local data immediately
+        rowData = rowData.filter(r => r.token !== token);
+        removeTokenData = removeTokenData.filter(r => r.token !== token);
+
+        // Update grid
+        gridApi.setGridOption('rowData', rowData);
+        document.getElementById('rowCount').textContent = rowData.length;
+
+        // Update instruments tab
+        loadInstruments([]);
+
+      } catch (e) {
+        showToast('Failed to remove token', 'error');
+      }
+    }
+
+    // Format functions
+    function formatPrice(params) {
+      return params.value ? `₹${params.value.toFixed(2)}` : '-';
+    }
+
+    function formatChange(params) {
+      return params.value ? (params.value > 0 ? `+${params.value.toFixed(2)}` : params.value.toFixed(2)) : '-';
+    }
+
+    function formatPercent(params) {
+      return params.value ? (params.value > 0 ? `+${params.value.toFixed(2)}%` : `${params.value.toFixed(2)}%`) : '-';
+    }
+
+    function formatVolume(params) {
+      return params.value ? params.value.toLocaleString() : '-';
+    }
+
+    function formatRSI(params) {
+      return params.value ? params.value.toFixed(1) : '-';
+    }
+
+    function formatVolatility(params) {
+      return params.value ? params.value.toFixed(2) + '%' : '-';
+    }
+
+    function formatAlert(params) {
+      return params.value || '';
+    }
+
+    function getPriceClass(params) {
+      if (params.colDef.field === 'change') {
+        return params.value > 0 ? 'positive' : params.value < 0 ? 'negative' : '';
+      }
+      if (params.colDef.field === 'change_percent') {
+        return params.value > 0 ? 'positive' : params.value < 0 ? 'negative' : '';
+      }
+      return '';
+    }
+
+    function getChangeClass(params) {
+      return params.value > 0 ? 'positive' : params.value < 0 ? 'negative' : '';
+    }
+
+    function getPercentClass(params) {
+      return params.value > 0 ? 'positive' : params.value < 0 ? 'negative' : '';
+    }
+
+    function getRSIClass(params) {
+      if (params.value > 70) return 'rsi-high';
+      if (params.value < 30) return 'rsi-low';
+      return '';
+    }
+
+    function getAlertClass(params) {
+      return params.value ? 'has-alert' : '';
+    }
+
+    function formatStatus(params) {
+      if (params.value) return 'ERROR';
+      return 'OK';
+    }
+
+    function getStatusClass(params) {
+      return params.value ? 'status-error' : 'status-ok';
+    }
+
+    // Tab switching
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.sheet').forEach(s => s.classList.remove('active'));
+
+      document.querySelector(`.tab:nth-child(${tab === 'live' ? 1 : tab === 'instruments' ? 2 : tab === 'alerts' ? 3 : 4})`).classList.add('active');
+      document.getElementById(`sheet-${tab}`).classList.add('active');
+    }
+
+    // Search
+    function onSearch() {
+      const text = document.getElementById('searchInput').value;
+      gridApi.setGridOption('quickFilterText', text);
+    }
+
+    // Row double click - show chart
+    async function onRowDoubleClick(event) {
+      const token = event.data.token;
+      document.getElementById('chartTitle').textContent = `📈 ${event.data.symbol} - Candlestick Chart`;
+      document.getElementById('chartModal').classList.add('active');
+
+      try {
+        const response = await fetch(`/api/candles/${token}`);
+        const data = await response.json();
+        renderChart(data.candles || []);
+      } catch (e) {
+        showToast('Failed to load chart', 'error');
+      }
+    }
+
+    // Render chart
+    function renderChart(candleData) {
+      const container = document.getElementById('chartContainer');
+
+      if (chart) {
+        chart.remove();
+      }
+
+      chart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: 400,
+        layout: {
+          background: { type: 'solid', color: '#252525' },
+          textColor: '#ddd',
+        },
+        grid: {
+          vertLines: { color: '#333' },
+          horzLines: { color: '#333' },
+        },
+      });
+
+      const series = chart.addCandlestickSeries({
+        upColor: '#4caf50',
+        downColor: '#f44336',
+        borderUpColor: '#4caf50',
+        borderDownColor: '#f44336',
+        wickUpColor: '#4caf50',
+        wickDownColor: '#f44336',
+      });
+
+      series.setData(candleData);
+      chart.timeScale().fitContent();
+    }
+
+    function closeChart() {
+      document.getElementById('chartModal').classList.remove('active');
+    }
+
+    // Add token modal
+    function showAddTokenModal() {
+      document.getElementById('addTokenModal').classList.add('active');
+    }
+
+    function closeAddTokenModal() {
+      document.getElementById('addTokenModal').classList.remove('active');
+      document.getElementById('symbolSearch').value = '';
+      document.getElementById('symbolResults').innerHTML = '';
+    }
+
+    // Close modal when clicking outside
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          overlay.classList.remove('active');
+        }
+      });
+    });
+
+    // Close modals with Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.getElementById('addTokenModal').classList.remove('active');
+        document.getElementById('removeTokenModal').classList.remove('active');
+        document.getElementById('chartModal').classList.remove('active');
+      }
+    });
+
+    // Search symbols for adding
+    let allSymbols = [];
+    let searchTimeout = null;
+
+    async function searchSymbols() {
+      const query = document.getElementById('symbolSearch').value;
+
+      // Debounce search
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(async () => {
+        try {
+          const response = await fetch(`/api/symbols/search?q=${encodeURIComponent(query)}`);
+          const data = await response.json();
+          allSymbols = data.symbols || [];
+
+          // Filter out already added tokens
+          const addedTokens = rowData.map(r => r.token);
+          const availableSymbols = allSymbols.filter(s => !addedTokens.includes(s.token));
+
+          displaySymbolResults(availableSymbols);
+        } catch (e) {
+          console.error('Search error:', e);
+        }
+      }, 300);
+    }
+
+    function displaySymbolResults(symbols) {
+      const container = document.getElementById('symbolResults');
+
+      if (symbols.length === 0) {
+        container.innerHTML = '<p style="color: #888; padding: 12px;">No symbols found</p>';
+        return;
+      }
+
+      container.innerHTML = symbols.map(s => `
+        <div class="symbol-result-item" onclick="addStock('${s.token}', '${s.symbol}')" style="display: flex; justify-content: space-between; padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-color);">
+          <span style="font-weight: 600;">${s.symbol}</span>
+          <span style="color: #888; font-size: 12px;">Token: ${s.token}</span>
+        </div>
+      `).join('');
+
+      // Add hover effect
+      container.querySelectorAll('.symbol-result-item').forEach(item => {
+        item.addEventListener('mouseenter', () => item.style.background = 'var(--border-color)');
+        item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+      });
+    }
+
+    async function addStock(token, symbol) {
+      try {
+        await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+        showToast(`Added ${symbol}`, 'success');
+        closeAddTokenModal();
+
+        // Trigger immediate data fetch via WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default', action: 'refresh' }));
+        }
+      } catch (e) {
+        showToast('Failed to add stock', 'error');
+      }
+    }
+
+    // Show remove token modal
+    let removeTokenData = [];
+
+    function showRemoveTokenModal() {
+      removeTokenData = [...rowData]; // Copy current rowData
+      document.getElementById('removeTokenSearch').value = '';
+      renderRemoveTokenList(removeTokenData);
+      document.getElementById('removeTokenModal').classList.add('active');
+    }
+
+    function renderRemoveTokenList(data) {
+      const container = document.getElementById('removeTokenList');
+      if (data.length === 0) {
+        container.innerHTML = '<p style="color: #888;">No tokens found</p>';
+      } else {
+        container.innerHTML = data.map(r => `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; margin-bottom: 4px; background: var(--bg-color); border-radius: 4px;">
+            <span>${r.symbol} (${r.token})</span>
+            <button onclick="removeToken('${r.token}')" style="background: none; border: none; color: var(--negative); cursor: pointer; font-size: 14px;">Remove</button>
+          </div>
+        `).join('');
+      }
+    }
+
+    function filterRemoveTokenList() {
+      const searchTerm = document.getElementById('removeTokenSearch').value.toLowerCase();
+      const filtered = removeTokenData.filter(r =>
+        r.symbol.toLowerCase().includes(searchTerm) ||
+        r.token.toLowerCase().includes(searchTerm)
+      );
+      renderRemoveTokenList(filtered);
+    }
+
+    function closeRemoveTokenModal() {
+      document.getElementById('removeTokenModal').classList.remove('active');
+    }
+
+    async function removeToken(token) {
+      try {
+        await fetch(`/api/tokens/${token}`, { method: 'DELETE' });
+        showToast(`Removed token ${token}`, 'success');
+
+        // Remove from local data and refresh UI
+        rowData = rowData.filter(r => r.token !== token);
+        removeTokenData = removeTokenData.filter(r => r.token !== token);
+
+        // Update grid
+        gridApi.setGridOption('rowData', rowData);
+        document.getElementById('rowCount').textContent = rowData.length;
+
+        // Update remove modal list
+        renderRemoveTokenList(removeTokenData);
+
+        // Update instruments tab (since it uses rowData)
+        loadInstruments([]);
+
+      } catch (e) {
+        showToast('Failed to remove token', 'error');
+      }
+    }
+
+    // Export CSV
+    function exportCSV() {
+      gridApi.exportDataAsCsv({
+        fileName: `trading_data_${new Date().toISOString().split('T')[0]}.csv`
+      });
+      showToast('Exported to CSV', 'success');
+    }
+
+    // Clear alerts
+    async function clearAlerts() {
+      try {
+        await fetch('/api/alerts/clear', { method: 'POST' });
+        alerts = [];
+        updateAlertsUI();
+        showToast('Alerts cleared', 'success');
+      } catch (e) {
+        showToast('Failed to clear alerts', 'error');
+      }
+    }
+
+    // Refresh data
+    function refreshData() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default' }));
+        showToast('Refreshing data...', 'success');
+      }
+    }
+
+    // Theme toggle
+    function toggleTheme() {
+      theme = theme === 'dark' ? 'light' : 'dark';
+      document.body.style.setProperty('--bg-color', theme === 'dark' ? '#1a1a1a' : '#fff');
+      document.body.style.setProperty('--text-color', theme === 'dark' ? '#e0e0e0' : '#333');
+      document.body.style.setProperty('--border-color', theme === 'dark' ? '#333' : '#ddd');
+      document.body.style.setProperty('--header-bg', theme === 'dark' ? '#252525' : '#f5f5f5');
+      document.body.style.setProperty('--toolbar-bg', theme === 'dark' ? '#2a2a2a' : '#fafafa');
+
+      const gridDiv = document.getElementById('grid');
+      gridDiv.classList.toggle('ag-theme-alpine-dark', theme === 'dark');
+      gridDiv.classList.toggle('ag-theme-alpine', theme === 'light');
+    }
+
+    // Toast
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      setTimeout(() => toast.remove(), 5000);
+    }
+  </script>
+</body>
+</html>

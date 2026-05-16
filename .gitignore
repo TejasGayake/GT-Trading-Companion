@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dll
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.py~
+
+# Project specific
+token_backups/
+logs/
+*.log
+*.xlsx
+*.db
+
+# Credentials
+config/credentials.py
+*.key
+*.pem
+*.crt
+.env
+
+# Node
+node_modules/
+
+# OpenClaude / Claude
+.claude/
+.openclaude/
+.graphify_python
+
+# OS
+.DS_Store
+Thumbs.db

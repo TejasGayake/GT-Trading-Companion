@@ -1,0 +1,622 @@
+# ===============================
+# web_dashboard/backend/main.py - FastAPI Trading Backend
+# ===============================
+
+import asyncio
+import json
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Dict, List, Optional, Set
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import os
+import sys
+
+# Add parent directories to path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+sys.path.insert(0, os.path.join(project_root, '..'))
+
+from yahoo_provider import YahooFinanceProvider
+from utils.symbol_loader import SymbolLoader
+from indicators.calculator import calculate_all_indicators
+from utils.logger import get_logger
+from config.settings import config
+
+logger = get_logger('DashboardAPI')
+
+
+# ===============================
+# Data Models
+# ===============================
+
+class Token(BaseModel):
+    token: str
+    symbol: str
+    exchange: str = "NSE"
+
+
+class Watchlist(BaseModel):
+    name: str
+    tokens: List[str]
+
+
+class TokenData(BaseModel):
+    token: str
+    symbol: str
+    ltp: float
+    open: float
+    high: float
+    low: float
+    prev_close: float
+    change: float
+    change_percent: float
+    volume: int
+    avg_volume: int
+    vwap: float
+    sma21: float
+    sma40: float
+    sma200: float
+    ema10: float
+    rsi14: float
+    supertrend: float
+    supertrend_direction: str
+    Camarilla_H4: float
+    Camarilla_H3: float
+    Camarilla_L3: float
+    Camarilla_L4: float
+    support: float
+    resistance: float
+    volatility: float
+    prev_day_high: float
+    prev_day_low: float
+    alert: str
+    timestamp: datetime
+
+
+# ===============================
+# Application State
+# ===============================
+
+class DashboardState:
+    def __init__(self):
+        self.provider: Optional[YahooFinanceProvider] = None
+        self.symbol_loader: Optional[SymbolLoader] = None
+        self.websocket_clients: Set[WebSocket] = set()
+        self.watchlists: Dict[str, List[str]] = {"Default": []}
+        self.active_tokens: Set[str] = set()
+        self.token_data_cache: Dict[str, dict] = {}
+        self.alerts: List[dict] = []
+        self.last_update: float = 0
+        self.running: bool = False
+        self.yahoo_mapping: Dict[str, str] = {}
+        self.watchlist_file: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "watchlist.json")
+        self.refresh_event: asyncio.Event = asyncio.Event()
+
+    def save_watchlist(self):
+        """Save watchlist to file"""
+        try:
+            with open(self.watchlist_file, 'w') as f:
+                json.dump(self.watchlists, f)
+        except Exception as e:
+            logger.error(f"Error saving watchlist: {e}")
+
+    def load_watchlist(self):
+        """Load watchlist from file"""
+        try:
+            if os.path.exists(self.watchlist_file):
+                with open(self.watchlist_file, 'r') as f:
+                    self.watchlists = json.load(f)
+                    logger.info(f"Loaded watchlist: {len(self.watchlists.get('Default', []))} tokens")
+        except Exception as e:
+            logger.error(f"Error loading watchlist: {e}")
+
+    async def broadcast(self, message: dict):
+        """Broadcast to all WebSocket clients"""
+        disconnected = []
+        for ws in self.websocket_clients:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                disconnected.append(ws)
+        for ws in disconnected:
+            self.websocket_clients.discard(ws)
+
+
+state = DashboardState()
+
+
+# ===============================
+# Alert Functions
+# ===============================
+
+def get_alert_categories(row: dict) -> dict:
+    """Categorize alerts into different types"""
+    if not row:
+        return {"camarilla": False, "volume_spike": False, "volume_sma8": False}
+
+    ltp = row.get("ltp", 0)
+    h4 = row.get("Camarilla_H4", 0)
+    l4 = row.get("Camarilla_L4", 0)
+    vol = row.get("volume", 0)
+
+    categories = {
+        "camarilla": False,
+        "volume_spike": False,
+        "volume_sma8": False
+    }
+
+    # Camarilla alerts: LTP crosses H4 or L4
+    if h4 and ltp > h4:
+        categories["camarilla"] = "ABOVE H4"
+    elif l4 and ltp < l4:
+        categories["camarilla"] = "BELOW L4"
+
+    # Volume Spike: volume > configured threshold * avg_volume (skip if no avg_volume data)
+    avg_vol = row.get("avg_volume", 0)
+    volume_spike_threshold = config.ALERT_THRESHOLDS.get('volume_spike', 2.5)
+    if avg_vol > 0 and vol > avg_vol * volume_spike_threshold:
+        categories["volume_spike"] = True
+
+    # Volume SMA8: volume > 3x volume SMA8 (compare volume to volume, not price)
+    vol_sma8 = row.get("volume_sma8", 0)
+    if vol_sma8 and vol_sma8 > 0 and vol > vol_sma8 * 3:
+        categories["volume_sma8"] = True
+
+    return categories
+
+
+def check_alerts(token: str, data: dict) -> Optional[str]:
+    """Check if any alert conditions are met - for single alert column"""
+    if not data:
+        return None
+
+    ltp = data.get("ltp", 0)
+    h4 = data.get("Camarilla_H4", 0)
+    l4 = data.get("Camarilla_L4", 0)
+    rsi = data.get("rsi14", 0)
+    vol = data.get("volume", 0)
+    avg_vol = data.get("avg_volume", 1)
+
+    if h4 and ltp > h4:
+        return "ABOVE H4"
+    elif l4 and ltp < l4:
+        return "BELOW L4"
+    elif rsi > config.ALERT_THRESHOLDS.get('rsi_overbought', 70):
+        return "OVERBOUGHT"
+    elif rsi < config.ALERT_THRESHOLDS.get('rsi_oversold', 30):
+        return "OVERSOLD"
+    elif avg_vol > 0 and vol > avg_vol * config.ALERT_THRESHOLDS.get('volume_spike', 2.5):
+        return "VOLUME SPIKE"
+
+    return None
+
+
+# ===============================
+# Alert Categories Builder
+# ===============================
+
+def _build_alert_categories() -> dict:
+    """Build alert categories from current token data cache"""
+    camarilla_stocks = []
+    volume_spike_stocks = []
+    volume_sma8_stocks = []
+
+    for token, row in state.token_data_cache.items():
+        categories = get_alert_categories(row)
+        stock_info = {
+            "token": token,
+            "symbol": row.get("symbol", ""),
+            "ltp": row.get("ltp", 0),
+            "volume": row.get("volume", 0),
+            "sma8": row.get("sma8", 0),
+            "Camarilla_H4": row.get("Camarilla_H4", 0),
+            "Camarilla_L4": row.get("Camarilla_L4", 0),
+            "condition": categories.get("camarilla", False)
+        }
+
+        if categories.get("camarilla"):
+            camarilla_stocks.append(stock_info)
+        if categories.get("volume_spike"):
+            volume_spike_stocks.append({
+                "token": token,
+                "symbol": row.get("symbol", ""),
+                "ltp": row.get("ltp", 0),
+                "volume": row.get("volume", 0),
+                "avg_volume": row.get("avg_volume", 0)
+            })
+        if categories.get("volume_sma8"):
+            volume_sma8_stocks.append({
+                "token": token,
+                "symbol": row.get("symbol", ""),
+                "ltp": row.get("ltp", 0),
+                "volume": row.get("volume", 0),
+                "volume_sma8": row.get("volume_sma8", 0)
+            })
+
+    return {
+        "camarilla": camarilla_stocks,
+        "volume_spike": volume_spike_stocks,
+        "volume_sma8": volume_sma8_stocks
+    }
+
+
+# ===============================
+# Data Polling Loop
+# ===============================
+
+async def poll_data():
+    """Background task to poll data and broadcast"""
+    while state.running:
+        try:
+            tokens = state.watchlists.get("Default", [])[:200]  # Limit to 200
+
+            for token in tokens:
+                try:
+                    # Get live quote
+                    quote = state.provider.get_live_quote(token)
+                    if not quote:
+                        # Update error in cache if token exists
+                        if token in state.token_data_cache:
+                            state.token_data_cache[token]["last_error"] = "No quote data"
+                            state.token_data_cache[token]["error_count"] = state.token_data_cache[token].get("error_count", 0) + 1
+                        continue
+
+                    # Get candles for indicators
+                    candles = state.provider.get_candles(token, days=5, interval="5m")
+
+                    # Get previous day data for proper Camarilla calculation
+                    prev_day = state.provider.get_previous_day_candles(token)
+
+                    # Calculate indicators
+                    indicators = calculate_all_indicators(candles, quote, prev_day)
+
+                    # Get symbol
+                    symbol = state.provider.get_symbol(token)
+
+                    # Build row data
+                    row = {
+                        "token": token,
+                        "symbol": symbol,
+                        **indicators,
+                        "alert": check_alerts(token, indicators),
+                        "timestamp": datetime.now().isoformat(),
+                        "last_error": None,
+                        "error_count": 0
+                    }
+
+                    # Store in cache
+                    state.token_data_cache[token] = row
+
+                    # Check for new alerts
+                    if row.get("alert"):
+                        # Check if this is a new alert
+                        existing = state.alerts and state.alerts[-1].get("token") == token
+                        if not existing or state.alerts[-1].get("alert") != row["alert"]:
+                            # New alert
+                            state.alerts.append({
+                                "token": token,
+                                "symbol": symbol,
+                                "condition": row["alert"],
+                                "ltp": row["ltp"],
+                                "h4": row.get("Camarilla_H4", 0),
+                                "l4": row.get("Camarilla_L4", 0),
+                                "triggered_at": datetime.now().isoformat(),
+                                "status": "active"
+                            })
+
+                            # Broadcast alert
+                            await state.broadcast({
+                                "type": "alert",
+                                "data": state.alerts[-1]
+                            })
+
+                except Exception as e:
+                    logger.error(f"Error processing {token}: {e}")
+                    # Track error in cache
+                    if token in state.token_data_cache:
+                        state.token_data_cache[token]["last_error"] = str(e)
+                        state.token_data_cache[token]["error_count"] = state.token_data_cache[token].get("error_count", 0) + 1
+
+            # Broadcast all data with categorized alerts
+            state.last_update = time.time()
+
+            await state.broadcast({
+                "type": "update",
+                "data": list(state.token_data_cache.values()),
+                "timestamp": state.last_update,
+                "alert_categories": _build_alert_categories()
+            })
+
+            # Wait for refresh signal or timeout (configurable interval)
+            state.refresh_event.clear()
+            try:
+                await asyncio.wait_for(state.refresh_event.wait(), timeout=config.POLL_INTERVAL)
+            except asyncio.TimeoutError:
+                pass  # Normal timeout, continue polling
+
+        except Exception as e:
+            logger.error(f"Poll error: {e}")
+            await asyncio.sleep(5)
+
+
+# ===============================
+# Lifespan
+# ===============================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting Trading Dashboard API...")
+
+    # Initialize
+    symbol_csv_path = os.path.join(project_root, "..", "symbol_mapping.csv")
+    state.symbol_loader = SymbolLoader(symbol_csv_path)
+    state.symbol_loader.load()
+
+    # Build Yahoo mapping
+    state.yahoo_mapping = {}
+    for token, symbol in state.symbol_loader.token_to_symbol.items():
+        yahoo_symbol = symbol.replace('-EQ', '').replace('-NS', '') + '.NS'
+        state.yahoo_mapping[token] = yahoo_symbol
+
+    state.provider = YahooFinanceProvider(state.yahoo_mapping)
+
+    # Load saved watchlist (start empty if no saved watchlist)
+    state.load_watchlist()
+    if not state.watchlists.get("Default"):
+        state.watchlists["Default"] = []  # Start empty - user adds stocks
+
+    # Start polling
+    state.running = True
+    asyncio.create_task(poll_data())
+
+    yield
+
+    # Shutdown
+    state.running = False
+    logger.info("API stopped")
+
+
+# ===============================
+# FastAPI App
+# ===============================
+
+app = FastAPI(title="Trading Dashboard API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ===============================
+# WebSocket
+# ===============================
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    state.websocket_clients.add(websocket)
+
+    try:
+        # Send initial data
+        await websocket.send_json({
+            "type": "init",
+            "data": list(state.token_data_cache.values()),
+            "watchlists": state.watchlists,
+            "alerts": state.alerts[-50:],
+            "alert_categories": _build_alert_categories()
+        })
+
+        # Keep alive
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+
+            if msg.get("type") == "subscribe":
+                watchlist = msg.get("watchlist", "Default")
+                # If action is refresh, trigger immediate data fetch
+                if msg.get("action") == "refresh":
+                    state.refresh_event.set()
+                await websocket.send_json({
+                    "type": "subscribed",
+                    "watchlist": watchlist,
+                    "tokens": state.watchlists.get(watchlist, [])
+                })
+
+    except WebSocketDisconnect:
+        state.websocket_clients.discard(websocket)
+
+
+# ===============================
+# REST API
+# ===============================
+
+@app.get("/")
+async def root():
+    # Serve the static HTML dashboard
+    html_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "index.html")
+    if os.path.exists(html_path):
+        from fastapi.responses import FileResponse
+        return FileResponse(html_path)
+    return {"status": "running", "service": "Trading Dashboard API"}
+
+
+@app.get("/api/health")
+async def health():
+    return {
+        "status": "healthy",
+        "last_update": state.last_update,
+        "active_tokens": len(state.token_data_cache),
+        "connected_clients": len(state.websocket_clients)
+    }
+
+
+@app.get("/api/data")
+async def get_all_data():
+    """Get all current data"""
+    return {
+        "data": list(state.token_data_cache.values()),
+        "timestamp": state.last_update
+    }
+
+
+@app.get("/api/data/{token}")
+async def get_token_data(token: str):
+    """Get data for specific token"""
+    if token not in state.token_data_cache:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return state.token_data_cache[token]
+
+
+@app.get("/api/candles/{token}")
+async def get_candles(token: str, days: int = 5, interval: str = "5m"):
+    """Get historical candles"""
+    candles = state.provider.get_candles(token, days=days, interval=interval)
+
+    chart_data = []
+    for c in candles:
+        chart_data.append({
+            "time": c[0] // 1000,
+            "open": c[1] / 100,
+            "high": c[2] / 100,
+            "low": c[3] / 100,
+            "close": c[4] / 100,
+            "volume": c[5]
+        })
+
+    return {
+        "token": token,
+        "symbol": state.provider.get_symbol(token),
+        "candles": chart_data
+    }
+
+
+@app.get("/api/alerts")
+async def get_alerts():
+    """Get active alerts"""
+    active = [a for a in state.alerts if a.get("status") == "active"]
+    return {"alerts": active, "count": len(active)}
+
+
+@app.get("/api/alerts/history")
+async def get_alerts_history(limit: int = 50):
+    """Get alert history"""
+    return {"alerts": state.alerts[-limit:], "count": len(state.alerts)}
+
+
+@app.get("/api/watchlists")
+async def get_watchlists():
+    """Get all watchlists"""
+    return {"watchlists": state.watchlists}
+
+
+@app.post("/api/watchlists")
+async def save_watchlist(watchlist: Watchlist):
+    """Save watchlist"""
+    state.watchlists[watchlist.name] = watchlist.tokens
+    return {"success": True, "name": watchlist.name}
+
+
+@app.post("/api/tokens/add")
+async def add_token(token: str, watchlist: str = "Default"):
+    """Add token to watchlist and trigger immediate data fetch"""
+    if watchlist not in state.watchlists:
+        state.watchlists[watchlist] = []
+
+    if token not in state.watchlists[watchlist]:
+        state.watchlists[watchlist].append(token)
+        state.save_watchlist()  # Save to file
+
+    # Fetch data for the new token immediately
+    try:
+        quote = state.provider.get_live_quote(token)
+        if quote:
+            candles = state.provider.get_candles(token, days=5, interval="5m")
+            prev_day = state.provider.get_previous_day_candles(token)
+            indicators = calculate_all_indicators(candles, quote, prev_day)
+            symbol = state.provider.get_symbol(token)
+
+            row = {
+                "token": token,
+                "symbol": symbol,
+                **indicators,
+                "alert": check_alerts(token, indicators),
+                "timestamp": datetime.now().isoformat()
+            }
+            state.token_data_cache[token] = row
+
+            # Broadcast update to all clients immediately
+            await state.broadcast({
+                "type": "update",
+                "data": list(state.token_data_cache.values()),
+                "timestamp": time.time(),
+                "alert_categories": _build_alert_categories()
+            })
+    except Exception as e:
+        logger.error(f"Error fetching data for new token {token}: {e}")
+
+    # Signal the poll loop to run immediately
+    state.refresh_event.set()
+
+    return {"success": True, "token": token, "symbol": state.symbol_loader.token_to_symbol.get(token, "")}
+
+
+@app.delete("/api/tokens/{token}")
+async def remove_token(token: str, watchlist: str = "Default"):
+    """Remove token from watchlist (idempotent - returns success even if already removed)"""
+    if token in state.watchlists.get(watchlist, []):
+        state.watchlists[watchlist].remove(token)
+        state.save_watchlist()  # Save to file
+    # Also remove from cache if present
+    state.token_data_cache.pop(token, None)
+    return {"success": True}
+
+
+@app.get("/api/instruments")
+async def get_instruments():
+    """Get all available instruments"""
+    return {
+        "instruments": [
+            {"token": t, "symbol": s.replace('-EQ', '').replace('-NS', ''), "yahoo": state.yahoo_mapping.get(t, "")}
+            for t, s in state.symbol_loader.token_to_symbol.items()
+        ]
+    }
+
+
+@app.get("/api/symbols/search")
+async def search_symbols(q: str = ""):
+    """Search symbols by name"""
+    all_symbols = [
+        {"token": t, "symbol": s.replace('-EQ', '').replace('-NS', '')}
+        for t, s in state.symbol_loader.token_to_symbol.items()
+    ]
+
+    if not q:
+        return {"symbols": all_symbols[:100]}  # Return first 100 if no search
+
+    q_lower = q.lower()
+    filtered = [s for s in all_symbols if q_lower in s["symbol"].lower()]
+    return {"symbols": filtered[:50]}  # Return max 50 results
+
+
+@app.post("/api/alerts/clear")
+async def clear_alerts():
+    """Clear active alerts"""
+    for alert in state.alerts:
+        if alert.get("status") == "active":
+            alert["status"] = "resolved"
+            alert["resolved_at"] = datetime.now().isoformat()
+    return {"success": True}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
