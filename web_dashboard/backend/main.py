@@ -3,13 +3,15 @@
 # ===============================
 
 import asyncio
+import csv
+import io
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List, Optional, Set
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -801,6 +803,95 @@ async def remove_token(token: str, watchlist: str = "Default", user_id: str = Qu
     # Also remove from cache if present
     state.token_data_cache.pop(token, None)
     return {"success": True}
+
+
+@app.post("/api/tokens/upload")
+async def upload_csv(file: UploadFile = File(...), watchlist: str = "Default", user_id: str = Query("local")):
+    """Upload CSV to bulk-add tokens. Auto-detects format:
+    - TOKEN + SYMBOL columns: use directly
+    - SYMBOL only: look up token from symbol_mapping
+    - TOKEN only: look up symbol from symbol_mapping
+    """
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="File must be a .csv")
+
+    content = await file.read()
+    text = content.decode('utf-8-sig')  # Handle BOM
+    reader = csv.DictReader(io.StringIO(text))
+
+    # Normalize headers to uppercase
+    if reader.fieldnames is None:
+        raise HTTPException(status_code=400, detail="CSV file is empty or has no headers")
+    headers = [h.strip().upper() for h in reader.fieldnames]
+
+    has_token = 'TOKEN' in headers
+    has_symbol = 'SYMBOL' in headers
+
+    if not has_token and not has_symbol:
+        raise HTTPException(status_code=400, detail="CSV must have TOKEN and/or SYMBOL columns")
+
+    # Build reverse lookup: symbol -> token
+    symbol_to_token = {v.replace('-EQ', '').replace('-NS', ''): k for k, v in state.symbol_loader.token_to_symbol.items()}
+
+    added = []
+    skipped = []
+    errors = []
+
+    if watchlist not in state.watchlists:
+        state.watchlists[watchlist] = []
+
+    for row_num, row in enumerate(reader, start=2):
+        try:
+            # Normalize keys
+            row = {k.strip().upper(): v.strip() for k, v in row.items()}
+
+            token = row.get('TOKEN', '').strip()
+            symbol = row.get('SYMBOL', '').strip().upper()
+
+            if not token and not symbol:
+                errors.append({"row": row_num, "error": "Empty row"})
+                continue
+
+            # Resolve token and symbol
+            if has_token and has_symbol:
+                # Both provided - use directly
+                pass
+            elif has_symbol:
+                # Symbol only - look up token
+                token = symbol_to_token.get(symbol, '')
+                if not token:
+                    errors.append({"row": row_num, "symbol": symbol, "error": "Symbol not found in symbol mapping"})
+                    continue
+            elif has_token:
+                # Token only - look up symbol
+                symbol = state.symbol_loader.get_symbol(token).replace('-EQ', '').replace('-NS', '')
+
+            # Add to watchlist
+            if token not in state.watchlists[watchlist]:
+                state.watchlists[watchlist].append(token)
+                added.append({"token": token, "symbol": symbol})
+            else:
+                skipped.append({"token": token, "symbol": symbol, "reason": "Already in watchlist"})
+
+        except Exception as e:
+            errors.append({"row": row_num, "error": str(e)})
+
+    # Persist
+    if user_id not in state.user_watchlists:
+        state.user_watchlists[user_id] = {"Default": []}
+    state.user_watchlists[user_id][watchlist] = state.watchlists[watchlist].copy()
+    await state.save_watchlist(user_id)
+
+    # Trigger data refresh
+    state.refresh_event.set()
+
+    return {
+        "success": True,
+        "added": len(added),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "details": {"added": added, "skipped": skipped, "errors": errors}
+    }
 
 
 @app.get("/api/instruments")

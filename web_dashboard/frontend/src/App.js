@@ -3,7 +3,7 @@ import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { createChart } from 'lightweight-charts';
-import { Plus, Minus, Download, Search, Sun, Moon, Bell, AlertTriangle, X, Trash, RefreshCw, TrendingUp, Target, BarChart3 } from 'lucide-react';
+import { Plus, Minus, Download, Upload, Search, Sun, Moon, Bell, AlertTriangle, X, Trash, RefreshCw, TrendingUp, Target, BarChart3 } from 'lucide-react';
 
 // Cloud-ready configuration
 const getApiUrl = () => {
@@ -68,6 +68,7 @@ function App() {
   const [symbolSearchText, setSymbolSearchText] = useState('');
   const [symbolResults, setSymbolResults] = useState([]);
   const symbolSearchTimeout = useRef(null);
+  const csvFileRef = useRef(null);
 
   // Remove token search state
   const [removeSearchText, setRemoveSearchText] = useState('');
@@ -512,6 +513,61 @@ function App() {
     }
   };
 
+  // Upload CSV bulk add
+  const handleUploadCSV = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const userId = getUserId();
+      const response = await fetch(`${getApiUrl()}/api/tokens/upload?watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        addToast(data.detail || 'Upload failed', 'error');
+        return;
+      }
+
+      if (data.added > 0) {
+        addToast(`Added ${data.added} stocks to ${currentWatchlist}`, 'success');
+      }
+      if (data.skipped > 0) {
+        addToast(`${data.skipped} already in watchlist`, 'info');
+      }
+      if (data.errors > 0) {
+        addToast(`${data.errors} rows had errors`, 'warning');
+      }
+      if (data.added === 0 && data.skipped === 0 && data.errors === 0) {
+        addToast('CSV file is empty', 'warning');
+      }
+
+      // Update local watchlist state
+      if (data.details?.added) {
+        setWatchlists(prev => {
+          const wl = prev[currentWatchlist] || [];
+          const newTokens = data.details.added.map(a => a.token).filter(t => !wl.includes(t));
+          return { ...prev, [currentWatchlist]: [...wl, ...newTokens] };
+        });
+      }
+
+      // Trigger refresh
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
+      }
+    } catch (e) {
+      addToast('Failed to upload CSV', 'error');
+    }
+
+    // Reset file input
+    if (csvFileRef.current) csvFileRef.current.value = '';
+  };
+
   // Remove token
   const handleRemoveToken = async (token) => {
     try {
@@ -643,6 +699,16 @@ function App() {
           </button>
           <button className="toolbar-btn" onClick={() => setShowRemoveToken(true)}>
             <Minus size={16} /> Remove
+          </button>
+          <input
+            type="file"
+            ref={csvFileRef}
+            accept=".csv"
+            style={{ display: 'none' }}
+            onChange={handleUploadCSV}
+          />
+          <button className="toolbar-btn" onClick={() => csvFileRef.current?.click()} title="Upload CSV to bulk-add stocks">
+            <Upload size={16} /> Upload CSV
           </button>
           <button className="toolbar-btn" onClick={exportToCSV}>
             <Download size={16} /> Export
