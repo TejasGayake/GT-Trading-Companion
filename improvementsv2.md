@@ -1,531 +1,824 @@
-# 🎯 **Detailed AI Prompt for Remaining GT Trading Companion Work**
-
-Here's a comprehensive prompt you can give to an AI model to complete the remaining improvements:
+Here's a comprehensive prompt you can give to an AI model to implement all the watchlist usability improvements:
 
 ```markdown
-# GT Trading Companion - Remaining Improvements Implementation
+# GT Trading Companion - Watchlist User Adoption Improvements
 
-## Project Status Overview
+## Project Context
 
-The GT Trading Companion project has made significant progress. The following features are **already implemented**:
+You are an expert frontend/React developer tasked with improving the watchlist feature of the **GT Trading Companion** to make it more intuitive and user-friendly for first-time users.
 
-### ✅ Completed Features
-- Drawing tools on candlestick charts (trendlines, horizontal lines, Fibonacci)
-- Multiple watchlist groups (create, switch, delete)
-- Portfolio tracker with holdings and P&L
-- Backtesting engine structure
-- Dark/light mode toggle
-- Real-time WebSocket updates
-- Yahoo Finance integration
+**Repository:** https://github.com/TejasGayake/GT-Trading-Companion
 
-### ❌ Remaining Features to Implement (Priority Order)
+**Current Tech Stack:**
+- Frontend: React 18, Tailwind CSS
+- Backend: FastAPI, Python 3.9+
+- State Management: React Hooks (useState, useEffect)
+- HTTP Client: Fetch API
+
+## Problem Statement
+
+New users find the watchlist feature confusing because:
+1. Empty state shows no guidance on what to do
+2. Users don't know token numbers for stocks they want to add
+3. No demo data to understand how the feature works
+4. No quick ways to add popular stocks
+5. Mobile view is cramped (table view only)
+
+## Implementation Requirements
+
+Implement ALL of the following improvements:
 
 ---
 
-## HIGH PRIORITY (Must Have)
+## HIGH PRIORITY (Implement First)
 
-### 1. Virtual Scrolling for Large Watchlists
+### 1. Friendly Empty State with Guidance
 
-**Problem:** When users add 200+ tokens, the dashboard becomes slow because all rows render at once.
+**Location:** `web_dashboard/frontend/src/components/WatchlistTable.js`
 
-**Implementation Requirements:**
+**Replace the empty state with:**
 
-```bash
-npm install react-window react-virtualized-auto-sizer
+```jsx
+{watchlist.length === 0 ? (
+  <div className="empty-watchlist">
+    <div className="empty-icon">📋</div>
+    <h3>Your watchlist is empty</h3>
+    <p>Add stocks to start tracking real-time prices, indicators, and alerts</p>
+    
+    <div className="quick-start">
+      <h4>Quick add popular stocks:</h4>
+      <div className="quick-buttons">
+        <button onClick={() => addToken('5097')}>+ ETERNAL (5097)</button>
+        <button onClick={() => addToken('4503')}>+ MPHASIS (4503)</button>
+        <button onClick={() => addToken('11351')}>+ PETRONET (11351)</button>
+        <button onClick={() => addToken('21690')}>+ DIXON (21690)</button>
+        <button onClick={() => addToken('25049')}>+ PREMIERENE (25049)</button>
+      </div>
+    </div>
+    
+    <button className="demo-btn" onClick={loadDemoWatchlist}>
+      📋 Load Demo Watchlist (7 stocks)
+    </button>
+    
+    <p className="hint">💡 Tip: Click the + Add button or search by company name above</p>
+  </div>
+) : (
+  // Existing watchlist table
+)}
 ```
 
-**Modify `web_dashboard/frontend/src/components/WatchlistTable.js`:**
+**CSS for empty state (add to index.css):**
+```css
+.empty-watchlist {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  margin: 20px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.7;
+}
+
+.empty-watchlist h3 {
+  font-size: 24px;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.empty-watchlist p {
+  color: var(--text-secondary);
+  margin-bottom: 30px;
+}
+
+.quick-start {
+  background: var(--bg-tertiary);
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  width: 100%;
+  max-width: 500px;
+}
+
+.quick-start h4 {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.quick-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.quick-buttons button {
+  padding: 8px 16px;
+  background: var(--button-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.quick-buttons button:hover {
+  background: var(--button-hover-bg);
+  transform: scale(1.02);
+}
+
+.demo-btn {
+  padding: 10px 24px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.demo-btn:hover {
+  background: #45a049;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+```
+
+---
+
+### 2. Demo Watchlist Functionality
+
+**Location:** `web_dashboard/frontend/src/App.js`
+
+**Add the loadDemoWatchlist function:**
 
 ```javascript
-import { FixedSizeList as List } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
+const DEMO_WATCHLIST = ['5097', '4503', '11351', '21690', '25049', '1594', '7229'];
 
-const WatchlistTable = ({ tokens, columns, onRowClick }) => {
-  const Row = ({ index, style }) => {
-    const token = tokens[index];
-    return (
-      <div style={style} className="table-row" onClick={() => onRowClick(token)}>
-        {columns.map(col => (
-          <div key={col.key} className="table-cell">
-            {formatValue(token[col.key], col.type)}
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  return (
-    <div className="watchlist-container">
-      {/* Header row (static) */}
-      <div className="table-header">
-        {columns.map(col => <div key={col.key}>{col.name}</div>)}
-      </div>
-      
-      {/* Virtualized rows */}
-      <AutoSizer>
-        {({ height, width }) => (
-          <List
-            height={height}
-            itemCount={tokens.length}
-            itemSize={40}  // Row height in pixels
-            width={width}
-          >
-            {Row}
-          </List>
-        )}
-      </AutoSizer>
-    </div>
-  );
+const loadDemoWatchlist = async () => {
+  setLoading(true);
+  let successCount = 0;
+  let failCount = 0;
+  
+  for (const token of DEMO_WATCHLIST) {
+    try {
+      const response = await fetch('/api/tokens/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+      const data = await response.json();
+      if (data.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+    } catch (error) {
+      failCount++;
+    }
+  }
+  
+  // Refresh watchlist
+  await fetchWatchlist();
+  
+  // Show feedback
+  if (successCount > 0) {
+    showToast(`✅ Added ${successCount} stocks to watchlist`, 'success');
+  }
+  if (failCount > 0) {
+    showToast(`⚠️ ${failCount} stocks already in watchlist`, 'info');
+  }
+  
+  setLoading(false);
 };
 ```
 
-**CSS adjustments:**
+---
+
+### 3. Smart Token Search with Autocomplete
+
+**Create new file:** `web_dashboard/frontend/src/components/TokenSearch.js`
+
+```javascript
+import React, { useState, useEffect, useRef } from 'react';
+
+const TokenSearch = ({ onSelect, placeholder = "Search by company name or token..." }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchRef = useRef(null);
+  
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+  
+  useEffect(() => {
+    const delayDebounce = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        searchStocks();
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    }, 300);
+    
+    return () => clearTimeout(delayDebounce);
+  }, [searchTerm]);
+  
+  const searchStocks = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`/api/symbols/search?q=${searchTerm}`);
+      const data = await response.json();
+      setSuggestions(data.slice(0, 8));
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('Search failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  const handleSelect = (stock) => {
+    setSearchTerm('');
+    setSuggestions([]);
+    setShowSuggestions(false);
+    onSelect(stock.token);
+  };
+  
+  return (
+    <div className="token-search" ref={searchRef}>
+      <div className="search-input-wrapper">
+        <span className="search-icon">🔍</span>
+        <input
+          type="text"
+          className="search-input"
+          placeholder={placeholder}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          onFocus={() => searchTerm.length >= 2 && setShowSuggestions(true)}
+        />
+        {isLoading && <span className="loading-icon">⏳</span>}
+      </div>
+      
+      {showSuggestions && suggestions.length > 0 && (
+        <div className="suggestions-dropdown">
+          {suggestions.map(stock => (
+            <div
+              key={stock.token}
+              className="suggestion-item"
+              onClick={() => handleSelect(stock)}
+            >
+              <div className="suggestion-symbol">{stock.symbol}</div>
+              <div className="suggestion-name">{stock.name}</div>
+              <div className="suggestion-token">{stock.token}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default TokenSearch;
+```
+
+**CSS for search (add to index.css):**
+
 ```css
-.watchlist-container {
-  height: calc(100vh - 200px);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+.token-search {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
 }
 
-.table-header {
+.search-input-wrapper {
+  position: relative;
   display: flex;
-  background: var(--header-bg);
-  font-weight: bold;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  align-items: center;
 }
 
-.table-row {
+.search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 12px 10px 36px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #4caf50;
+}
+
+.loading-icon {
+  position: absolute;
+  right: 12px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.suggestions-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-top: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.suggestion-item {
   display: flex;
-  border-bottom: 1px solid var(--border-color);
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
   cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.2s;
 }
 
-.table-row:hover {
+.suggestion-item:hover {
   background: var(--hover-bg);
 }
 
-.table-cell {
+.suggestion-symbol {
+  font-weight: bold;
+  color: var(--text-primary);
+}
+
+.suggestion-name {
   flex: 1;
-  padding: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-left: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.suggestion-token {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: monospace;
 }
 ```
 
-**Expected Impact:** Supports 1000+ tokens smoothly
-
 ---
 
-### 2. WebSocket Batching for Real-time Updates
+### 4. Quick Add Groups (Popular Stock Lists)
 
-**Problem:** Individual WebSocket messages for each token cause UI thrashing.
-
-**Backend Modification (`web_dashboard/backend/main.py`):**
-
-```python
-import asyncio
-from collections import defaultdict
-from datetime import datetime
-
-# Add batching to WebSocket manager
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections = []
-        self.update_batch = defaultdict(dict)
-        self.batch_lock = asyncio.Lock()
-        
-    async def start_batch_broadcaster(self):
-        while True:
-            await asyncio.sleep(0.5)  # Batch every 500ms
-            async with self.batch_lock:
-                if self.update_batch and self.active_connections:
-                    batch_data = {
-                        "type": "batch_update",
-                        "timestamp": datetime.now().timestamp(),
-                        "updates": dict(self.update_batch)
-                    }
-                    await self.broadcast_json(batch_data)
-                    self.update_batch.clear()
-    
-    def queue_update(self, token, data):
-        with self.batch_lock:
-            self.update_batch[token].update(data)
-    
-    async def broadcast_json(self, data):
-        for connection in self.active_connections:
-            await connection.send_json(data)
-```
-
-**Frontend Modification (`web_dashboard/frontend/src/App.js`):**
+**Location:** `web_dashboard/frontend/src/components/QuickAddGroups.js`
 
 ```javascript
-// Process batched updates
-const handleWebSocketMessage = (data) => {
-  if (data.type === 'batch_update') {
-    setTokens(prevTokens => {
-      const newTokens = { ...prevTokens };
-      Object.entries(data.updates).forEach(([token, updates]) => {
-        newTokens[token] = { ...newTokens[token], ...updates };
-      });
-      return newTokens;
-    });
-  } else if (data.type === 'single_update') {
-    // Handle individual updates (fallback)
-    setTokens(prev => ({
-      ...prev,
-      [data.token]: { ...prev[data.token], ...data.data }
-    }));
-  }
-};
-```
+import React from 'react';
 
----
-
-### 3. Alert Deduplication System
-
-**Problem:** Same alert triggers multiple times (price bouncing around H4/L4).
-
-**Backend Implementation:**
-
-```python
-# Add to `web_dashboard/backend/main.py`
-
-from collections import defaultdict
-from datetime import datetime, timedelta
-
-class AlertCooldown:
-    def __init__(self, cooldown_seconds=300):
-        self.cooldown_seconds = cooldown_seconds
-        self.last_triggered = defaultdict(dict)
-    
-    def can_trigger(self, token, condition):
-        key = f"{token}_{condition}"
-        if key in self.last_triggered:
-            last_time = self.last_triggered[key]
-            if datetime.now() - last_time < timedelta(seconds=self.cooldown_seconds):
-                return False, last_time + timedelta(seconds=self.cooldown_seconds)
-        return True, None
-    
-    def record_trigger(self, token, condition):
-        key = f"{token}_{condition}"
-        self.last_triggered[key] = datetime.now()
-    
-    def get_cooldown_remaining(self, token, condition):
-        key = f"{token}_{condition}"
-        if key in self.last_triggered:
-            elapsed = (datetime.now() - self.last_triggered[key]).seconds
-            return max(0, self.cooldown_seconds - elapsed)
-        return 0
-
-# Initialize globally
-alert_cooldown = AlertCooldown(cooldown_seconds=300)
-
-# Modify alert checking function
-async def check_alerts(tokens_data):
-    for token, data in tokens_data.items():
-        conditions = evaluate_conditions(data)
-        
-        for condition in conditions:
-            can_trigger, next_available = alert_cooldown.can_trigger(token, condition)
-            
-            if can_trigger:
-                alert_cooldown.record_trigger(token, condition)
-                await send_alert(token, condition, data)
-            else:
-                # Optional: notify user when alert will be available again
-                if next_available:
-                    logger.info(f"Alert {condition} for {token} on cooldown until {next_available}")
-```
-
-**Frontend Cooldown Display:**
-
-```javascript
-// Add cooldown indicator in Alerts panel
-const AlertCooldownTimer = ({ token, condition, onComplete }) => {
-  const [remaining, setRemaining] = useState(0);
-  
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      const res = await fetch(`/api/alerts/cooldown/${token}/${condition}`);
-      const data = await res.json();
-      setRemaining(data.remaining_seconds);
-      if (data.remaining_seconds === 0 && onComplete) {
-        onComplete();
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [token, condition]);
-  
-  return remaining > 0 ? (
-    <span className="cooldown-timer">({remaining}s)</span>
-  ) : null;
-};
-```
-
----
-
-## MEDIUM PRIORITY (Should Have)
-
-### 4. CSV Export Functionality
-
-**Add to Frontend (`web_dashboard/frontend/src/components/Toolbar.js`):**
-
-```javascript
-const exportToCSV = (data, filename, columns) => {
-  // Prepare headers
-  const headers = columns.map(col => col.name).join(',');
-  
-  // Prepare rows
-  const rows = data.map(item => 
-    columns.map(col => {
-      let value = item[col.key];
-      if (col.type === 'number') value = value.toFixed(2);
-      if (col.type === 'percentage') value = `${value.toFixed(2)}%`;
-      return `"${value}"`;  // Wrap in quotes to handle commas
-    }).join(',')
-  ).join('\n');
-  
-  const csv = `${headers}\n${rows}`;
-  
-  // Download
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-  link.href = url;
-  link.setAttribute('download', `${filename}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+const POPULAR_LISTS = {
+  'NIFTY 50': ['2885', '3045', '1594', '11536', '1660', '1394', '4963', '2475', '3499', '10738'],
+  'BANK NIFTY': ['1394', '4963', '17818', '2475', '317', '1901'],
+  'High Volume': ['5097', '4503', '11351', '21690', '25049', '1594', '7229'],
 };
 
-// Add button to toolbar
-<button onClick={() => exportToCSV(tokens, 'watchlist_export', columns)}>
-  📥 Export CSV
-</button>
-```
-
-**Backend CSV Export Endpoint:**
-
-```python
-@app.get("/api/export/watchlist")
-async def export_watchlist(watchlist_id: int):
-    tokens = get_watchlist_tokens(watchlist_id)
-    data = await fetch_live_data(tokens)
+const QuickAddGroups = ({ onAddGroup, currentWatchlist }) => {
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  
+  const handleAddGroup = async (groupName, tokens) => {
+    const newTokens = tokens.filter(t => !currentWatchlist.includes(t));
+    if (newTokens.length === 0) {
+      alert('All stocks already in watchlist');
+      return;
+    }
     
-    # Convert to CSV
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(['Symbol', 'LTP', 'Change', 'Change%', 'Volume', 'RSI', 'Condition'])
-    
-    for item in data:
-        writer.writerow([
-            item['symbol'], item['ltp'], item['change'],
-            item['change_percent'], item['volume'], item['rsi'], item['alert']
-        ])
-    
-    headers = {'Content-Disposition': 'attachment; filename=watchlist.csv'}
-    return Response(output.getvalue(), media_type='text/csv', headers=headers)
-```
-
----
-
-### 5. Mobile Responsive Improvements
-
-**Create mobile-specific components:**
-
-```javascript
-// web_dashboard/frontend/src/components/MobileBottomNav.js
-const MobileBottomNav = ({ activeTab, onTabChange }) => {
+    setSelectedGroup(groupName);
+    for (const token of newTokens) {
+      await onAddGroup(token);
+    }
+    setSelectedGroup(null);
+  };
+  
   return (
-    <div className="mobile-bottom-nav">
-      <button onClick={() => onTabChange('watchlist')} className={activeTab === 'watchlist' ? 'active' : ''}>
-        📊 Watchlist
-      </button>
-      <button onClick={() => onTabChange('charts')} className={activeTab === 'charts' ? 'active' : ''}>
-        📈 Charts
-      </button>
-      <button onClick={() => onTabChange('alerts')} className={activeTab === 'alerts' ? 'active' : ''}>
-        🔔 Alerts
-      </button>
-      <button onClick={() => onTabChange('portfolio')} className={activeTab === 'portfolio' ? 'active' : ''}>
-        💼 Portfolio
-      </button>
+    <div className="quick-add-groups">
+      <span className="groups-label">Quick add:</span>
+      {Object.entries(POPULAR_LISTS).map(([name, tokens]) => (
+        <button
+          key={name}
+          className="group-btn"
+          onClick={() => handleAddGroup(name, tokens)}
+          disabled={selectedGroup === name}
+        >
+          {selectedGroup === name ? 'Adding...' : `+ ${name}`}
+        </button>
+      ))}
     </div>
   );
 };
+
+export default QuickAddGroups;
 ```
 
-**Mobile CSS (`web_dashboard/frontend/src/index.css`):**
+---
+
+### 5. Mobile Card View
+
+**Create new file:** `web_dashboard/frontend/src/components/WatchlistCards.js`
+
+```javascript
+import React from 'react';
+
+const WatchlistCards = ({ watchlist, onRemove, onSelect }) => {
+  const formatVolume = (volume) => {
+    if (volume >= 10000000) return `${(volume / 10000000).toFixed(1)}Cr`;
+    if (volume >= 100000) return `${(volume / 100000).toFixed(1)}L`;
+    return volume.toLocaleString();
+  };
+  
+  return (
+    <div className="watchlist-cards">
+      {watchlist.map(stock => (
+        <div 
+          key={stock.token} 
+          className="stock-card"
+          onClick={() => onSelect(stock)}
+        >
+          <div className="card-header">
+            <div className="stock-info">
+              <span className="symbol">{stock.symbol}</span>
+              <span className="token">{stock.token}</span>
+            </div>
+            <button 
+              className="remove-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm(`Remove ${stock.symbol}?`)) onRemove(stock.token);
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          
+          <div className="card-price">
+            <span className="ltp">₹{stock.ltp.toFixed(2)}</span>
+            <span className={`change ${stock.change >= 0 ? 'positive' : 'negative'}`}>
+              {stock.change >= 0 ? '▲' : '▼'} {Math.abs(stock.changePercent).toFixed(2)}%
+            </span>
+          </div>
+          
+          <div className="card-details">
+            <div className="detail">
+              <span className="label">Volume</span>
+              <span className="value">{formatVolume(stock.volume)}</span>
+            </div>
+            <div className="detail">
+              <span className="label">RSI</span>
+              <span className={`value ${stock.rsi > 70 ? 'overbought' : stock.rsi < 30 ? 'oversold' : ''}`}>
+                {stock.rsi.toFixed(1)}
+              </span>
+            </div>
+            {stock.alert && (
+              <div className="detail alert">
+                <span className="label">⚠️ Alert</span>
+                <span className="value">{stock.alert}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+export default WatchlistCards;
+```
+
+**CSS for cards (add to index.css):**
 
 ```css
-/* Mobile styles - add to existing CSS */
-@media (max-width: 768px) {
-  /* Hide advanced columns on mobile */
-  .table-cell.advanced-indicator {
-    display: none;
-  }
-  
-  /* Bottom navigation */
-  .mobile-bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: space-around;
-    background: var(--bg-color);
-    border-top: 1px solid var(--border-color);
-    padding: 8px 0;
-    z-index: 100;
-  }
-  
-  .mobile-bottom-nav button {
-    flex: 1;
-    padding: 12px 0;
-    font-size: 14px;
-    background: none;
-    border: none;
-    color: var(--text-color);
-    cursor: pointer;
-  }
-  
-  .mobile-bottom-nav button.active {
-    color: #4caf50;
-    border-top: 2px solid #4caf50;
-  }
-  
-  /* Larger touch targets */
-  .action-button {
-    min-width: 48px;
-    min-height: 48px;
-  }
-  
-  /* Swipe support */
-  .watchlist-item {
-    touch-action: pan-y pinch-zoom;
-  }
+.watchlist-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
 }
-```
 
-**Add swipe gesture support:**
+.stock-card {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid var(--border-color);
+}
 
-```javascript
-import { useSwipeable } from 'react-swipeable';
+.stock-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
 
-const WatchlistItem = ({ token, onDelete, onChart }) => {
-  const handlers = useSwipeable({
-    onSwipedLeft: () => onDelete(token),
-    onSwipedRight: () => onChart(token),
-    preventDefaultTouchmoveEvent: true,
-    trackMouse: true
-  });
-  
-  return (
-    <div {...handlers} className="watchlist-item">
-      {/* Item content */}
-    </div>
-  );
-};
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.stock-info .symbol {
+  font-weight: bold;
+  font-size: 16px;
+  margin-right: 8px;
+}
+
+.stock-info .token {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+}
+
+.remove-btn:hover {
+  color: #ff4444;
+}
+
+.card-price {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+
+.ltp {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.change {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.change.positive {
+  color: #4caf50;
+}
+
+.change.negative {
+  color: #f44336;
+}
+
+.card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail .label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.detail .value {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.detail .value.overbought {
+  color: #ff6b6b;
+}
+
+.detail .value.oversold {
+  color: #4ecdc4;
+}
+
+.detail.alert {
+  flex: 1;
+  text-align: right;
+}
 ```
 
 ---
 
-## LOW PRIORITY (Nice to Have)
+### 6. View Toggle (Table/Card View)
 
-### 6. Performance Monitoring Dashboard
+**Add to `web_dashboard/frontend/src/components/WatchlistHeader.js`:**
 
-**Add health endpoint with metrics:**
+```javascript
+const [viewMode, setViewMode] = useState(() => {
+  return localStorage.getItem('watchlistViewMode') || 'table';
+});
 
-```python
-# Add to `web_dashboard/backend/main.py`
+const toggleViewMode = (mode) => {
+  setViewMode(mode);
+  localStorage.setItem('watchlistViewMode', mode);
+};
 
-from collections import deque
-import psutil
+// In JSX
+<div className="view-toggle">
+  <button 
+    className={viewMode === 'table' ? 'active' : ''}
+    onClick={() => toggleViewMode('table')}
+  >
+    📊 Table View
+  </button>
+  <button 
+    className={viewMode === 'cards' ? 'active' : ''}
+    onClick={() => toggleViewMode('cards')}
+  >
+    🃏 Card View
+  </button>
+</div>
 
-class MetricsCollector:
-    def __init__(self):
-        self.response_times = deque(maxlen=1000)
-        self.error_counts = defaultdict(int)
-        self.start_time = datetime.now()
-    
-    def record_response_time(self, endpoint, duration_ms):
-        self.response_times.append({
-            'endpoint': endpoint,
-            'duration_ms': duration_ms,
-            'timestamp': datetime.now()
-        })
-    
-    def record_error(self, endpoint, error_type):
-        self.error_counts[f"{endpoint}_{error_type}"] += 1
-    
-    def get_metrics(self):
-        avg_response = sum(r['duration_ms'] for r in self.response_times) / len(self.response_times) if self.response_times else 0
-        p95 = sorted([r['duration_ms'] for r in self.response_times])[-5:] if self.response_times else [0]
-        
-        return {
-            'uptime_seconds': (datetime.now() - self.start_time).seconds,
-            'avg_response_ms': round(avg_response, 2),
-            'p95_response_ms': round(sum(p95)/len(p95), 2) if p95 else 0,
-            'errors': dict(self.error_counts),
-            'active_websockets': len(manager.active_connections),
-            'memory_usage_mb': psutil.Process().memory_info().rss / 1024 / 1024,
-            'yfinance_rate_limit_remaining': yfinance.get_remaining_calls()  # If tracked
-        }
+// Conditional rendering
+{viewMode === 'table' ? (
+  <WatchlistTable ... />
+) : (
+  <WatchlistCards ... />
+)}
+```
 
-metrics = MetricsCollector()
+---
 
-@app.get("/api/metrics")
-async def get_metrics():
-    return metrics.get_metrics()
+### 7. Performance Badges
+
+**Add to `WatchlistTable.js` cells:**
+
+```javascript
+const getPerformanceBadge = (changePercent) => {
+  if (changePercent > 3) return <span className="badge strong-bullish">🚀 Strong</span>;
+  if (changePercent > 1) return <span className="badge bullish">📈 Up</span>;
+  if (changePercent < -3) return <span className="badge strong-bearish">📉 Strong</span>;
+  if (changePercent < -1) return <span className="badge bearish">🔻 Down</span>;
+  return <span className="badge neutral">➡️ Flat</span>;
+};
+
+// Use in the Change column
+{getPerformanceBadge(stock.changePercent)}
+```
+
+**CSS for badges:**
+
+```css
+.badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.badge.strong-bullish {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+}
+
+.badge.bullish {
+  background: rgba(76, 175, 80, 0.1);
+  color: #8bc34a;
+}
+
+.badge.strong-bearish {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+}
+
+.badge.bearish {
+  background: rgba(244, 67, 54, 0.1);
+  color: #ff8a80;
+}
+
+.badge.neutral {
+  background: rgba(158, 158, 158, 0.2);
+  color: #9e9e9e;
+}
 ```
 
 ---
 
 ## Implementation Instructions
 
-### Deliverables
+### Files to Create:
+1. `web_dashboard/frontend/src/components/TokenSearch.js`
+2. `web_dashboard/frontend/src/components/QuickAddGroups.js`
+3. `web_dashboard/frontend/src/components/WatchlistCards.js`
 
-For each feature, provide:
-1. Complete code for all modified files
-2. Updated dependencies in `package.json` or `requirements.txt`
-3. SQL migration scripts if database changes needed
-4. Updated documentation in `README.md` and `improvements.md`
+### Files to Modify:
+1. `web_dashboard/frontend/src/components/WatchlistTable.js` - Add empty state, performance badges
+2. `web_dashboard/frontend/src/App.js` - Add demo watchlist, loadDemoWatchlist function
+3. `web_dashboard/frontend/src/index.css` - Add all new CSS styles
 
-### Testing Checklist
+### Backend Enhancement (Optional but Recommended):
 
-- [ ] Virtual scrolling: Test with 500, 1000, 2000 tokens
-- [ ] WebSocket batching: Verify 90% fewer messages
-- [ ] Alert dedup: Test rapid price changes around H4/L4
-- [ ] CSV export: Verify special characters, commas handled
-- [ ] Mobile: Test on iPhone (Safari) and Android (Chrome)
-- [ ] All features: No regression on existing functionality
+**Add symbol search endpoint in `web_dashboard/backend/main.py`:**
 
-### Success Criteria
-
-- [ ] Dashboard remains responsive with 2000+ tokens
-- [ ] WebSocket messages reduced from 40+ per second to 2 per second
-- [ ] No duplicate alerts within 5-minute cooldown
-- [ ] CSV export completes in under 3 seconds for 500 rows
-- [ ] Mobile UI passes Google's mobile-friendly test
-
-## Reference Files
-
-- Watchlist component: `web_dashboard/frontend/src/components/WatchlistTable.js`
-- WebSocket handler: `web_dashboard/frontend/src/hooks/useWebSocket.js`
-- Backend main: `web_dashboard/backend/main.py`
-- Alert logic: `yahoo_websocket.py`
+```python
+@app.get("/api/symbols/search")
+async def search_symbols(q: str):
+    """Search for symbols by name or token"""
+    if not q or len(q) < 2:
+        return []
+    
+    q = q.lower()
+    results = []
+    
+    for token, symbol in symbol_mapping.items():
+        if q in symbol.lower() or q in token:
+            results.append({
+                "token": token,
+                "symbol": symbol,
+                "name": symbol.replace('.NS', '').replace('-EQ', ''),
+                "exchange": "NSE"
+            })
+            if len(results) >= 10:
+                break
+    
+    return results
+```
 
 ---
 
-**Focus on HIGH PRIORITY items first. After completing all HIGH PRIORITY, proceed to MEDIUM PRIORITY.**
+## Testing Checklist
 
+After implementation, verify:
 
+- [ ] Empty watchlist shows friendly guidance with quick-add buttons
+- [ ] Demo watchlist loads 7 popular stocks successfully
+- [ ] Search works with company names (e.g., "infosys")
+- [ ] Search works with token numbers (e.g., "1594")
+- [ ] Quick-add groups add multiple stocks at once
+- [ ] Mobile card view works on small screens
+- [ ] View toggle persists user preference
+- [ ] Performance badges show correct colors
+- [ ] All styles work in both light and dark mode
+
+## Success Criteria
+
+The watchlist feature will be considered improved when:
+
+1. ✅ New users can add their first stock within 10 seconds
+2. ✅ Zero confusion about what to do (empty state guides clearly)
+3. ✅ Users can find stocks by company name without knowing token numbers
+4. ✅ Mobile users have comfortable touch-friendly interface
+5. ✅ Demo watchlist provides instant value without manual entry
 
 ---
 
+**Focus on HIGH PRIORITY items first. Complete ALL implementations before considering the task done.**
+
+This will transform the watchlist from "functional but confusing" to "intuitive and delightful" for new users!
+```
+
+---
+
+This prompt is ready to give to any AI model. It contains:
+- ✅ 7 complete features with full code
+- ✅ CSS styling for all components
+- ✅ Implementation instructions
+- ✅ Testing checklist
+- ✅ Success criteria
 

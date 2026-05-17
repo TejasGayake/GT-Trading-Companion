@@ -420,6 +420,84 @@
       cursor: pointer;
       font-size: 24px;
     }
+
+    .btn.active { background: var(--info); border-color: var(--info); color: #fff; }
+
+    /* Empty State */
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; text-align: center; flex: 1; }
+    .empty-icon { font-size: 64px; margin-bottom: 16px; opacity: 0.7; }
+    .empty-title { font-size: 24px; margin-bottom: 8px; }
+    .empty-desc { color: #888; margin-bottom: 28px; max-width: 400px; }
+    .empty-demo-btn { padding: 10px 24px; background: var(--positive); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 24px; }
+    .empty-demo-btn:hover { opacity: 0.85; }
+    .empty-hint { font-size: 12px; color: #666; margin-top: 16px; }
+
+    /* Quick Add Groups */
+    .quick-add-groups { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 20px; padding: 16px; background: var(--header-bg); border-radius: 8px; max-width: 500px; width: 100%; }
+    .quick-add-label { font-size: 13px; color: #888; }
+    .quick-add-btn { padding: 8px 16px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 20px; color: var(--text-color); cursor: pointer; font-size: 13px; transition: all 0.2s; }
+    .quick-add-btn:hover { background: var(--border-color); }
+
+    /* Token Search (inline) */
+    .token-search { position: relative; width: 100%; max-width: 420px; margin-bottom: 16px; }
+    .token-search-wrapper { position: relative; display: flex; align-items: center; }
+    .token-search-icon { position: absolute; left: 12px; color: #888; pointer-events: none; }
+    .token-search-input { width: 100%; padding: 10px 12px 10px 36px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color); color: var(--text-color); font-size: 14px; }
+    .token-search-input:focus { outline: none; border-color: var(--info); }
+    .token-search-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: var(--header-bg); border: 1px solid var(--border-color); border-radius: 6px; margin-top: 4px; max-height: 280px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+    .token-search-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-color); transition: background 0.15s; }
+    .token-search-item:hover { background: var(--border-color); }
+    .token-search-item:last-child { border-bottom: none; }
+    .token-search-empty { padding: 14px; color: #888; text-align: center; }
+
+    /* Card View */
+    .cards-container { flex: 1; overflow-y: auto; padding: 12px; }
+    .watchlist-cards { display: flex; flex-direction: column; gap: 10px; }
+    .stock-card { background: var(--header-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all 0.2s; }
+    .stock-card:hover { border-color: var(--info); }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .card-symbol { font-weight: 700; font-size: 15px; margin-right: 8px; }
+    .card-token { color: #888; font-size: 11px; font-family: monospace; }
+    .card-remove { background: none; border: none; color: #888; cursor: pointer; font-size: 16px; padding: 4px 8px; }
+    .card-remove:hover { color: var(--negative); }
+    .card-price-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+    .card-ltp { font-size: 22px; font-weight: 700; }
+    .card-change { font-size: 14px; font-weight: 600; }
+    .card-change.positive { color: var(--positive); }
+    .card-change.negative { color: var(--negative); }
+    .card-details { display: flex; gap: 20px; padding-top: 10px; border-top: 1px solid var(--border-color); }
+    .card-detail { display: flex; flex-direction: column; gap: 3px; }
+    .card-detail-label { font-size: 11px; color: #888; }
+    .card-detail-value { font-size: 13px; font-weight: 500; }
+    .card-detail-value.rsi-high { color: var(--warning); }
+    .card-detail-value.rsi-low { color: var(--info); }
+
+    /* Performance Badges */
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600; margin-left: 6px; vertical-align: middle; line-height: 1.4; }
+    .badge.strong-bullish { background: rgba(76,175,80,0.25); color: #4caf50; }
+    .badge.bullish { background: rgba(76,175,80,0.12); color: #8bc34a; }
+    .badge.strong-bearish { background: rgba(244,67,54,0.25); color: #f44336; }
+    .badge.bearish { background: rgba(244,67,54,0.12); color: #ff8a80; }
+    .badge.neutral { background: rgba(158,158,158,0.2); color: #9e9e9e; }
+
+    /* Cell styles */
+    .positive { color: var(--positive) !important; }
+    .negative { color: var(--negative) !important; }
+    .rsi-high { background: #ff572233 !important; color: var(--warning) !important; }
+    .rsi-low { background: #2196f333 !important; color: var(--info) !important; }
+    .has-alert { background: var(--alert-bg) !important; }
+    .status-error { color: var(--negative) !important; font-weight: bold; }
+    .status-ok { color: var(--positive) !important; }
+
+    @media (max-width: 768px) {
+      .empty-state { padding: 40px 16px; }
+      .empty-icon { font-size: 48px; }
+      .empty-title { font-size: 20px; }
+      .quick-add-groups { padding: 12px; gap: 8px; }
+      .cards-container { padding: 8px; }
+      .stock-card { padding: 12px 14px; }
+      .card-ltp { font-size: 20px; }
+    }
   </style>
 </head>
 <body>
@@ -447,6 +525,12 @@
       </div>
 
       <div class="toolbar-group" style="margin-left: auto;">
+        <button class="btn" id="viewTableBtn" onclick="setViewMode('table')" title="Table view">
+          <i class="ph ph-list"></i>
+        </button>
+        <button class="btn" id="viewCardsBtn" onclick="setViewMode('cards')" title="Card view">
+          <i class="ph ph-squares-four"></i>
+        </button>
         <button class="btn" onclick="toggleTheme()" id="themeBtn">
           <i class="ph ph-sun"></i>
         </button>
@@ -468,7 +552,40 @@
     <div class="content">
       <!-- Live Data Sheet -->
       <div class="sheet active" id="sheet-live">
+        <!-- Empty State (hidden by default) -->
+        <div id="emptyState" class="empty-state" style="display: none;">
+          <div class="empty-icon">📊</div>
+          <h3 class="empty-title">Your watchlist is empty</h3>
+          <p class="empty-desc">Add stocks to start tracking real-time prices, indicators, and alerts</p>
+          <div class="quick-add-groups">
+            <span class="quick-add-label">Quick add:</span>
+            <button class="quick-add-btn" onclick="quickAddGroup('nifty50')">+ NIFTY 50</button>
+            <button class="quick-add-btn" onclick="quickAddGroup('banknifty')">+ BANK NIFTY</button>
+            <button class="quick-add-btn" onclick="quickAddGroup('highvol')">+ High Volume</button>
+          </div>
+          <button class="empty-demo-btn" onclick="loadDemoWatchlist()">Load Demo Watchlist (7 stocks)</button>
+          <div class="token-search" id="emptySearch">
+            <div class="token-search-wrapper">
+              <svg class="token-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input type="text" class="token-search-input" placeholder="Search by company name or token..." oninput="inlineSearchSymbols(this.value, 'emptySearchResults')">
+            </div>
+            <div class="token-search-dropdown" id="emptySearchResults" style="display:none;"></div>
+          </div>
+          <p class="empty-hint">Tip: Click the + Add button, search by name, or upload a CSV</p>
+        </div>
+        <!-- Table View -->
         <div id="grid" class="ag-theme-alpine-dark"></div>
+        <!-- Card View (hidden by default) -->
+        <div id="cardView" class="cards-container" style="display: none;">
+          <div class="token-search" style="margin-bottom: 12px;">
+            <div class="token-search-wrapper">
+              <svg class="token-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input type="text" class="token-search-input" placeholder="Search by company name or token..." oninput="inlineSearchSymbols(this.value, 'cardSearchResults')">
+            </div>
+            <div class="token-search-dropdown" id="cardSearchResults" style="display:none;"></div>
+          </div>
+          <div class="watchlist-cards" id="watchlistCards"></div>
+        </div>
       </div>
 
       <!-- Instruments Sheet -->
@@ -588,6 +705,14 @@
     let alerts = [];
     let theme = 'dark';
     let chart = null;
+    let viewMode = localStorage.getItem('watchlistViewMode') || 'table';
+
+    const DEMO_TOKENS = ['2885', '1594', '3045', '11536', '1660', '1394', '4963'];
+    const POPULAR_LISTS = {
+      nifty50: ['2885', '3045', '1594', '11536', '1660', '1394', '4963', '2475', '3499', '10738'],
+      banknifty: ['1394', '4963', '17818', '2475', '317', '1901'],
+      highvol: ['5097', '4503', '11351', '21690', '25049', '1594', '7229'],
+    };
 
     // Column definitions - 29 columns matching Excel
     const columnDefs = [
@@ -599,7 +724,18 @@
       { headerName: 'LOW', field: 'low', width: 90, valueFormatter: formatPrice },
       { headerName: 'PREV CLOSE', field: 'prev_close', width: 100, valueFormatter: formatPrice },
       { headerName: 'CHANGE', field: 'change', width: 100, valueFormatter: formatChange, cellClass: getChangeClass },
-      { headerName: '%CHANGE', field: 'change_percent', width: 90, valueFormatter: formatPercent, cellClass: getPercentClass },
+      { headerName: '%CHANGE', field: 'change_percent', width: 130, cellRenderer: function(params) {
+        const v = params.value;
+        if (v == null) return '-';
+        const pct = `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
+        let badge = '';
+        if (v > 3) badge = '<span class="badge strong-bullish">Strong</span>';
+        else if (v > 1) badge = '<span class="badge bullish">Up</span>';
+        else if (v < -3) badge = '<span class="badge strong-bearish">Strong</span>';
+        else if (v < -1) badge = '<span class="badge bearish">Down</span>';
+        else badge = '<span class="badge neutral">Flat</span>';
+        return `<span>${pct}</span> ${badge}`;
+      }, cellClass: getPercentClass },
       { headerName: 'VOLUME', field: 'volume', width: 120, valueFormatter: formatVolume },
       { headerName: 'AVG VOL', field: 'avg_volume', width: 100, valueFormatter: formatVolume },
       { headerName: 'SMA8', field: 'sma8', width: 80, valueFormatter: formatVolume },
@@ -742,6 +878,9 @@
           if (msg.alert_categories) {
             updateAlertsColumns(msg.alert_categories);
           }
+
+          // Show/hide empty state
+          updateViewState();
         }
 
         if (msg.type === 'subscribed') {
@@ -1259,6 +1398,204 @@
       container.appendChild(toast);
 
       setTimeout(() => toast.remove(), 5000);
+    }
+
+    // ===== View Mode Toggle =====
+    function setViewMode(mode) {
+      viewMode = mode;
+      localStorage.setItem('watchlistViewMode', mode);
+      document.getElementById('viewTableBtn').classList.toggle('active', mode === 'table');
+      document.getElementById('viewCardsBtn').classList.toggle('active', mode === 'cards');
+      updateViewState();
+    }
+
+    function updateViewState() {
+      const isEmpty = rowData.length === 0;
+      const emptyState = document.getElementById('emptyState');
+      const grid = document.getElementById('grid');
+      const cardView = document.getElementById('cardView');
+
+      if (isEmpty) {
+        emptyState.style.display = 'flex';
+        grid.style.display = 'none';
+        cardView.style.display = 'none';
+      } else if (viewMode === 'cards') {
+        emptyState.style.display = 'none';
+        grid.style.display = 'none';
+        cardView.style.display = 'block';
+        renderCardView();
+      } else {
+        emptyState.style.display = 'none';
+        grid.style.display = 'block';
+        cardView.style.display = 'none';
+      }
+    }
+
+    // Initialize view mode buttons on load
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('viewTableBtn').classList.toggle('active', viewMode === 'table');
+      document.getElementById('viewCardsBtn').classList.toggle('active', viewMode === 'cards');
+    });
+
+    // ===== Demo Watchlist =====
+    async function loadDemoWatchlist() {
+      const existing = rowData.map(r => r.token);
+      const newTokens = DEMO_TOKENS.filter(t => !existing.includes(t));
+      if (newTokens.length === 0) {
+        showToast('All demo stocks already in watchlist', 'info');
+        return;
+      }
+
+      let added = 0;
+      for (const token of newTokens) {
+        try {
+          await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+          added++;
+        } catch (e) {}
+      }
+
+      if (added > 0) {
+        showToast(`Added ${added} demo stocks`, 'success');
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default', action: 'refresh' }));
+        }
+      }
+    }
+
+    // ===== Quick Add Groups =====
+    async function quickAddGroup(group) {
+      const tokens = POPULAR_LISTS[group];
+      if (!tokens) return;
+
+      const existing = rowData.map(r => r.token);
+      const newTokens = tokens.filter(t => !existing.includes(t));
+
+      if (newTokens.length === 0) {
+        showToast('All stocks from this group already in watchlist', 'info');
+        return;
+      }
+
+      let added = 0;
+      for (const token of newTokens) {
+        try {
+          await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+          added++;
+        } catch (e) {}
+      }
+
+      if (added > 0) {
+        showToast(`Added ${added} stocks`, 'success');
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default', action: 'refresh' }));
+        }
+      }
+    }
+
+    // ===== Inline Token Search with Autocomplete =====
+    let inlineSearchTimeout = null;
+
+    function inlineSearchSymbols(query, resultsId) {
+      const dropdown = document.getElementById(resultsId);
+      clearTimeout(inlineSearchTimeout);
+
+      if (query.length < 2) {
+        dropdown.style.display = 'none';
+        dropdown.innerHTML = '';
+        return;
+      }
+
+      inlineSearchTimeout = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/symbols/search?q=${encodeURIComponent(query)}`);
+          const data = await res.json();
+          const added = rowData.map(r => r.token);
+          const available = (data.symbols || []).filter(s => !added.includes(s.token)).slice(0, 8);
+
+          if (available.length === 0) {
+            dropdown.innerHTML = '<div class="token-search-empty">No symbols found</div>';
+          } else {
+            dropdown.innerHTML = available.map(s =>
+              `<div class="token-search-item" onclick="inlineAddStock('${s.token}', '${s.symbol}')">
+                <span style="font-weight:600;">${s.symbol}</span>
+                <span style="color:#888;font-size:12px;font-family:monospace;">${s.token}</span>
+              </div>`
+            ).join('');
+          }
+          dropdown.style.display = 'block';
+        } catch (e) {
+          console.error('Search error:', e);
+        }
+      }, 300);
+    }
+
+    async function inlineAddStock(token, symbol) {
+      try {
+        await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+        showToast(`Added ${symbol}`, 'success');
+
+        // Hide all dropdowns
+        document.querySelectorAll('.token-search-dropdown').forEach(d => {
+          d.style.display = 'none';
+          d.innerHTML = '';
+        });
+        document.querySelectorAll('.token-search-input').forEach(i => i.value = '');
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default', action: 'refresh' }));
+        }
+      } catch (e) {
+        showToast('Failed to add stock', 'error');
+      }
+    }
+
+    // Close dropdowns on outside click
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.token-search')) {
+        document.querySelectorAll('.token-search-dropdown').forEach(d => {
+          d.style.display = 'none';
+        });
+      }
+    });
+
+    // ===== Card View =====
+    function renderCardView() {
+      const container = document.getElementById('watchlistCards');
+      container.innerHTML = rowData.map(stock => {
+        const change = stock.change_percent || 0;
+        const changeClass = change >= 0 ? 'positive' : 'negative';
+        const rsiClass = stock.rsi14 > 70 ? 'rsi-high' : stock.rsi14 < 30 ? 'rsi-low' : '';
+
+        return `
+          <div class="stock-card" ondblclick="onRowDoubleClick({data: {token: '${stock.token}', symbol: '${stock.symbol}'}})">
+            <div class="card-header">
+              <div>
+                <span class="card-symbol">${stock.symbol}</span>
+                <span class="card-token">${stock.token}</span>
+              </div>
+              <button class="card-remove" onclick="event.stopPropagation(); removeToken('${stock.token}')" title="Remove">x</button>
+            </div>
+            <div class="card-price-row">
+              <span class="card-ltp">${stock.ltp ? '₹' + stock.ltp.toFixed(2) : '-'}</span>
+              <span class="card-change ${changeClass}">${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>
+            </div>
+            <div class="card-details">
+              <div class="card-detail">
+                <span class="card-detail-label">Volume</span>
+                <span class="card-detail-value">${stock.volume ? stock.volume.toLocaleString() : '-'}</span>
+              </div>
+              <div class="card-detail">
+                <span class="card-detail-label">RSI</span>
+                <span class="card-detail-value ${rsiClass}">${stock.rsi14 ? stock.rsi14.toFixed(1) : '-'}</span>
+              </div>
+              <div class="card-detail">
+                <span class="card-detail-label">VWAP</span>
+                <span class="card-detail-value">${stock.vwap ? '₹' + stock.vwap.toFixed(2) : '-'}</span>
+              </div>
+            </div>
+            ${stock.alert ? `<div style="margin-top:10px;padding:6px 10px;background:var(--alert-bg);border-radius:4px;font-size:12px;color:var(--warning);">${stock.alert}</div>` : ''}
+          </div>
+        `;
+      }).join('');
     }
   </script>
 </body>

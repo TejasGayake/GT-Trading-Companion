@@ -3,7 +3,10 @@ import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { createChart } from 'lightweight-charts';
-import { Plus, Minus, Download, Upload, Search, Sun, Moon, Bell, AlertTriangle, X, Trash, RefreshCw, TrendingUp, Target, BarChart3 } from 'lucide-react';
+import { Plus, Minus, Download, Upload, Search, Sun, Moon, Bell, AlertTriangle, X, Trash, RefreshCw, TrendingUp, Target, BarChart3, LayoutGrid, LayoutList } from 'lucide-react';
+import TokenSearch from './TokenSearch';
+import QuickAddGroups from './QuickAddGroups';
+import WatchlistCards from './WatchlistCards';
 
 // Cloud-ready configuration
 const getApiUrl = () => {
@@ -59,6 +62,7 @@ function App() {
   const [showAddHolding, setShowAddHolding] = useState(false);
   const [newHolding, setNewHolding] = useState({ token: '', symbol: '', quantity: '', buy_price: '' });
   const [trades, setTrades] = useState([]);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('watchlistViewMode') || 'table');
 
   // Drawing tool state
   const [chartOverlays, setChartOverlays] = useState({ camarilla: true, supertrend: true, vwap: false });
@@ -129,7 +133,18 @@ function App() {
     { headerName: 'LOW', field: 'low', width: 90, cellRenderer: p => formatPrice(p.value) },
     { headerName: 'PREV CLOSE', field: 'prev_close', width: 100, cellRenderer: p => formatPrice(p.value) },
     { headerName: 'CHANGE', field: 'change', width: 100, cellRenderer: p => formatChange(p.value), cellClass: getPriceClass },
-    { headerName: '%CHANGE', field: 'change_percent', width: 90, cellRenderer: p => formatPercent(p.value), cellClass: getPercentClass },
+    { headerName: '%CHANGE', field: 'change_percent', width: 130, cellRenderer: p => {
+      const v = p.value;
+      if (v == null) return '-';
+      const pct = `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
+      let badge = '';
+      if (v > 3) badge = '<span class="badge strong-bullish">Strong</span>';
+      else if (v > 1) badge = '<span class="badge bullish">Up</span>';
+      else if (v < -3) badge = '<span class="badge strong-bearish">Strong</span>';
+      else if (v < -1) badge = '<span class="badge bearish">Down</span>';
+      else badge = '<span class="badge neutral">Flat</span>';
+      return `<span>${pct}</span> ${badge}`;
+    }, cellClass: getPercentClass },
     { headerName: 'VOLUME', field: 'volume', width: 120, cellRenderer: p => formatVolume(p.value) },
     { headerName: 'AVG VOL', field: 'avg_volume', width: 100, cellRenderer: p => formatVolume(p.value) },
     { headerName: 'SMA8', field: 'sma8', width: 80, cellRenderer: p => formatVolume(p.value) },
@@ -219,10 +234,6 @@ function App() {
         setShowAddToken(false);
         setShowRemoveToken(false);
         setShowChart(false);
-        setShowPortfolio(false);
-        setShowHeatmap(false);
-        setShowCreateWatchlist(false);
-        setShowAddHolding(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -633,6 +644,60 @@ function App() {
     if (csvFileRef.current) csvFileRef.current.value = '';
   };
 
+  // Demo watchlist - load popular stocks
+  const DEMO_TOKENS = ['2885', '1594', '3045', '11536', '1660', '1394', '4963'];
+
+  const handleLoadDemo = async () => {
+    const existingTokens = rowData.map(r => r.token);
+    const newTokens = DEMO_TOKENS.filter(t => !existingTokens.includes(t));
+    if (newTokens.length === 0) {
+      addToast('All demo stocks already in watchlist', 'info');
+      return;
+    }
+
+    let added = 0;
+    for (const token of newTokens) {
+      try {
+        const userId = getUserId();
+        await fetch(`${getApiUrl()}/api/tokens/add?token=${token}&watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, { method: 'POST' });
+        added++;
+      } catch (e) {
+        // continue
+      }
+    }
+
+    if (added > 0) {
+      addToast(`Added ${added} demo stocks to ${currentWatchlist}`, 'success');
+      setWatchlists(prev => {
+        const wl = prev[currentWatchlist] || [];
+        const toAdd = newTokens.filter(t => !wl.includes(t));
+        return { ...prev, [currentWatchlist]: [...wl, ...toAdd] };
+      });
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
+      }
+    }
+  };
+
+  // Quick add group
+  const handleQuickAddGroup = async (token) => {
+    const userId = getUserId();
+    await fetch(`${getApiUrl()}/api/tokens/add?token=${token}&watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, { method: 'POST' });
+    setWatchlists(prev => {
+      const wl = prev[currentWatchlist] || [];
+      if (!wl.includes(token)) {
+        return { ...prev, [currentWatchlist]: [...wl, token] };
+      }
+      return prev;
+    });
+  };
+
+  // Toggle view mode
+  const toggleViewMode = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('watchlistViewMode', mode);
+  };
+
   // Remove token
   const handleRemoveToken = async (token) => {
     try {
@@ -816,6 +881,20 @@ function App() {
 
         <div className="toolbar-group" style={{ marginLeft: 'auto' }}>
           <button
+            className={`toolbar-btn ${viewMode === 'table' ? 'active' : ''}`}
+            onClick={() => toggleViewMode('table')}
+            title="Table view"
+          >
+            <LayoutList size={16} />
+          </button>
+          <button
+            className={`toolbar-btn ${viewMode === 'cards' ? 'active' : ''}`}
+            onClick={() => toggleViewMode('cards')}
+            title="Card view"
+          >
+            <LayoutGrid size={16} />
+          </button>
+          <button
             className="toolbar-btn"
             onClick={toggleTheme}
           >
@@ -871,8 +950,8 @@ function App() {
       <div className="main-content">
         {/* Live Data Sheet */}
         <div className={`sheet-view ${activeSheet === 'live' ? 'active' : ''}`}>
-          <div className="ag-theme-alpine-dark grid-container">
-            {dataLoading && (
+          {dataLoading ? (
+            <div className="ag-theme-alpine-dark grid-container">
               <div className="skeleton-container">
                 {Array(8).fill().map((_, i) => (
                   <div key={i} className="skeleton-row">
@@ -882,20 +961,66 @@ function App() {
                   </div>
                 ))}
               </div>
-            )}
-            {!dataLoading && <AgGridReact
-              ref={gridRef}
-              rowData={rowData}
-              columnDefs={columnDefs}
-              defaultColDef={defaultColDef}
-              onRowDoubleClicked={onRowDoubleClick}
-              rowHeight={32}
-              headerHeight={32}
-              animateRows={true}
-              getRowId={(params) => params.data.token}
-              suppressCellFocus={true}
-            />}
-          </div>
+            </div>
+          ) : rowData.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📊</div>
+              <h3 className="empty-title">Your watchlist is empty</h3>
+              <p className="empty-desc">Add stocks to start tracking real-time prices, indicators, and alerts</p>
+
+              <QuickAddGroups
+                onAddGroup={handleQuickAddGroup}
+                currentTokens={rowData.map(r => r.token)}
+              />
+
+              <button className="empty-demo-btn" onClick={handleLoadDemo}>
+                Load Demo Watchlist (7 stocks)
+              </button>
+
+              <div className="empty-search-wrapper">
+                <TokenSearch
+                  onSelect={handleAddToken}
+                  apiUrl={getApiUrl()}
+                  existingTokens={rowData.map(r => r.token)}
+                />
+              </div>
+
+              <p className="empty-hint">Tip: Click the + Add button, search by name, or upload a CSV</p>
+            </div>
+          ) : viewMode === 'cards' ? (
+            <div className="cards-view-container">
+              <div className="cards-search-bar">
+                <TokenSearch
+                  onSelect={handleAddToken}
+                  apiUrl={getApiUrl()}
+                  existingTokens={rowData.map(r => r.token)}
+                />
+              </div>
+              <WatchlistCards
+                watchlist={rowData}
+                onRemove={handleRemoveToken}
+                onSelect={(stock) => {
+                  setChartToken(stock.token);
+                  setShowChart(true);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="ag-theme-alpine-dark grid-container">
+              <AgGridReact
+                ref={gridRef}
+                rowData={rowData}
+                columnDefs={columnDefs}
+                defaultColDef={defaultColDef}
+                onRowDoubleClicked={onRowDoubleClick}
+                rowHeight={32}
+                headerHeight={32}
+                animateRows={true}
+                getRowId={(params) => params.data.token}
+                suppressCellFocus={true}
+              />
+            </div>
+          )}
         </div>
 
         {/* Instruments Sheet */}

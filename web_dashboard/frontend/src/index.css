@@ -847,3 +847,411 @@ body.modal-open {
   position: fixed;
   width: 100%;
 }
+
+/* Active toolbar button */
+.toolbar-btn.active {
+  background: var(--info);
+  border-color: var(--info);
+  color: #fff;
+}
+
+/* ===== Empty State ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.7;
+}
+
+.empty-title {
+  font-size: 24px;
+  margin-bottom: 8px;
+  color: var(--text-color);
+}
+
+.empty-desc {
+  color: #888;
+  margin-bottom: 28px;
+  max-width: 400px;
+}
+
+.empty-demo-btn {
+  padding: 10px 24px;
+  background: var(--positive);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: 24px;
+  transition: opacity 0.2s;
+}
+
+.empty-demo-btn:hover {
+  opacity: 0.85;
+}
+
+.empty-search-wrapper {
+  width: 100%;
+  max-width: 420px;
+  margin-bottom: 16px;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: #666;
+}
+
+/* ===== Token Search (Inline Autocomplete) ===== */
+.token-search {
+  position: relative;
+  width: 100%;
+}
+
+.token-search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.token-search-icon {
+  position: absolute;
+  left: 12px;
+  color: #888;
+  pointer-events: none;
+}
+
+.token-search-input {
+  width: 100%;
+  padding: 10px 12px 10px 36px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-size: 14px;
+}
+
+.token-search-input:focus {
+  outline: none;
+  border-color: var(--info);
+}
+
+.token-search-loading {
+  position: absolute;
+  right: 12px;
+  color: #888;
+  font-size: 12px;
+}
+
+.token-search-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--header-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-top: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+
+.token-search-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-color);
+  transition: background 0.15s;
+}
+
+.token-search-item:last-child {
+  border-bottom: none;
+}
+
+.token-search-item:hover {
+  background: var(--border-color);
+}
+
+.token-search-symbol {
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.token-search-token {
+  color: #888;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.token-search-empty {
+  padding: 14px;
+  color: #888;
+  text-align: center;
+}
+
+/* ===== Quick Add Groups ===== */
+.quick-add-groups {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--header-bg);
+  border-radius: 8px;
+  max-width: 500px;
+  width: 100%;
+}
+
+.quick-add-label {
+  font-size: 13px;
+  color: #888;
+}
+
+.quick-add-btn {
+  padding: 8px 16px;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.quick-add-btn:hover {
+  background: var(--border-color);
+  transform: scale(1.02);
+}
+
+.quick-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Card View ===== */
+.cards-view-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.cards-search-bar {
+  margin-bottom: 12px;
+  max-width: 400px;
+}
+
+.watchlist-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stock-card {
+  background: var(--header-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.stock-card:hover {
+  border-color: var(--info);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.card-stock-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.card-symbol {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.card-token {
+  color: #888;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.card-remove-btn {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+.card-remove-btn:hover {
+  color: var(--negative);
+}
+
+.card-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+
+.card-ltp {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.card-change {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.card-change.positive {
+  color: var(--positive);
+}
+
+.card-change.negative {
+  color: var(--negative);
+}
+
+.card-details {
+  display: flex;
+  gap: 20px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.card-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.card-detail-label {
+  font-size: 11px;
+  color: #888;
+}
+
+.card-detail-value {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.card-detail-value.rsi-high {
+  color: var(--warning);
+}
+
+.card-detail-value.rsi-low {
+  color: var(--info);
+}
+
+.card-alert {
+  margin-top: 10px;
+  padding: 6px 10px;
+  background: var(--alert-bg);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--warning);
+}
+
+.cards-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #888;
+}
+
+/* ===== Performance Badges ===== */
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+
+.badge.strong-bullish {
+  background: rgba(76, 175, 80, 0.25);
+  color: #4caf50;
+}
+
+.badge.bullish {
+  background: rgba(76, 175, 80, 0.12);
+  color: #8bc34a;
+}
+
+.badge.strong-bearish {
+  background: rgba(244, 67, 54, 0.25);
+  color: #f44336;
+}
+
+.badge.bearish {
+  background: rgba(244, 67, 54, 0.12);
+  color: #ff8a80;
+}
+
+.badge.neutral {
+  background: rgba(158, 158, 158, 0.2);
+  color: #9e9e9e;
+}
+
+/* ===== Mobile Card View ===== */
+@media (max-width: 768px) {
+  .empty-state {
+    padding: 40px 16px;
+  }
+
+  .empty-icon {
+    font-size: 48px;
+  }
+
+  .empty-title {
+    font-size: 20px;
+  }
+
+  .quick-add-groups {
+    padding: 12px;
+    gap: 8px;
+  }
+
+  .stock-card {
+    padding: 12px 14px;
+  }
+
+  .card-ltp {
+    font-size: 20px;
+  }
+
+  .cards-view-container {
+    padding: 8px;
+  }
+}
