@@ -8,6 +8,16 @@
 
 A **real-time Indian stock market dashboard** that fetches live quotes from Yahoo Finance, calculates technical indicators (RSI, Supertrend, Camarilla pivots, VWAP, SMAs), and displays them in an Excel-style grid with alerts. No API key needed — uses free Yahoo Finance data.
 
+**Core features:**
+- Live watchlist with real-time price updates (WebSocket)
+- Multiple watchlist groups with create/delete/switch
+- Portfolio tracker with P&L, averaging, and trade history
+- Interactive charts with overlays (Camarilla H4/L4, Supertrend, VWAP) and custom price lines
+- Alert system (volume spike, RSI, camarilla breakout) with deduplication (5-min cooldown)
+- Heat map view for sector-wide visualization
+- CSV export for data analysis
+- Adaptive polling (faster during market hours, slower off-hours)
+
 **Two interfaces:**
 - **React frontend** (AG Grid + lightweight-charts) — deployed on Cloudflare Pages
 - **Standalone HTML dashboard** (`web_dashboard/index.html`) — self-contained, no build step, served by the backend
@@ -74,6 +84,7 @@ GT Trading Companion/
 │   │   ├── rate_limiter.py    # AsyncRateLimiter (token bucket, 30 calls/60s)
 │   │   ├── storage.py         # FileWatchlistStorage + SupabaseWatchlistStorage
 │   │   ├── watchlist.json     # Local watchlist persistence
+│   │   ├── portfolio.json     # Portfolio holdings + trade history
 │   │   └── requirements.txt   # Python deps
 │   │
 │   └── frontend/
@@ -110,7 +121,9 @@ GT Trading Companion/
 | `RATE_LIMIT_CALLS` | `config/settings.py` | 30 | Max calls per period |
 | `RATE_LIMIT_PERIOD` | `config/settings.py` | 60s | Rate limit window |
 | `MAX_WATCHLIST_TOKENS` | `config/settings.py` | 200 | Hard cap on tokens |
-| Alert cooldown | `main.py:107` | 300s (5 min) | Per-token per-alert-type |
+| Alert cooldown | `main.py` | 300s (5 min) | Per-token per-alert-type dedup |
+| Market hours | `main.py` | 9:15-15:30 IST | Adaptive polling: 5s market, 30s off-hours |
+| Portfolio storage | `main.py` | `portfolio.json` | Holdings + trade history persistence |
 
 ---
 
@@ -124,11 +137,16 @@ GT Trading Companion/
 | GET | `/api/watchlist` | All watchlists |
 | GET | `/api/watchlist/{user_id}` | User-specific watchlist |
 | POST | `/api/watchlist/{user_id}` | Save user watchlist |
-| POST | `/api/tokens/add?token=X` | Add token to default watchlist |
-| DELETE | `/api/tokens/{token}` | Remove token from default watchlist |
+| DELETE | `/api/watchlists/{name}` | Delete a watchlist group |
+| POST | `/api/tokens/add?token=X&watchlist=Y` | Add token to watchlist |
+| DELETE | `/api/tokens/{token}?watchlist=Y` | Remove token from watchlist |
 | GET | `/api/symbols/search?q=X` | Search available symbols |
 | GET | `/api/candles/{token}` | Candlestick data for charts |
 | POST | `/api/alerts/clear` | Clear all alerts |
+| GET | `/api/portfolio` | Get portfolio holdings with live P&L |
+| POST | `/api/portfolio` | Add/update holding (quantity averaging) |
+| DELETE | `/api/portfolio/{token}?quantity=N` | Remove holding (partial or full) |
+| GET | `/api/portfolio/trades?limit=50` | Trade history log |
 | WS | `/ws?user_id=X` | WebSocket for real-time updates |
 
 ---
@@ -279,6 +297,11 @@ Set at: Render Dashboard → gt-trading-backend → Environment
 
 **Fix:** Removed `_redirects` — Cloudflare Pages handles SPA routing automatically.
 
+### 6. ReferenceError: drawing tool state (commit 0fd4a77)
+**Problem:** `Cannot access 'lt' before initialization` — `chartOverlays` and `customLines` states declared at line 348 but referenced in useEffect at line 174 (temporal dead zone).
+
+**Fix:** Moved drawing tool state declarations before the useEffect that uses them.
+
 ---
 
 ## Tech Stack
@@ -307,12 +330,17 @@ Set at: Render Dashboard → gt-trading-backend → Environment
 8. **Frontend is at `workers.dev`, not `pages.dev`.** Cloudflare Workers domain.
 9. **Each watchlist token ≈ 12 API calls/min** with current caching. 200 tokens = ~2400 calls/min (will hit Yahoo limits).
 10. **User prefers standalone HTML over React.** Keep both interfaces feature-synced.
+11. **React `useState` declarations must come before `useEffect` that references them.** `const` variables are in temporal dead zone until their line — referencing them in an earlier useEffect causes `ReferenceError: Cannot access 'X' before initialization`.
 
 ---
 
 ## Commit History
 
 ```
+0fd4a77 Fix: move drawing tool state declarations before useEffect reference
+7d97451 Complete partial features: watchlists, portfolio, drawing tools
+3a46277 Expand deployment pipeline docs with auto-deploy workflow
+d45533f Add comprehensive project brief for onboarding new sessions
 7a46c1c Fix Yahoo rate limiting, CORS for workers.dev, and add alert icons
 ccddf05 Fix: move format helpers before useMemo to fix ReferenceError
 494a935 Add instrument master CSV for symbol mapping
@@ -325,6 +353,28 @@ de8dd91 Add cloud deployment support
 00cdd98 Add one-click setup for new users
 e9f4d17 Initial commit
 ```
+
+---
+
+## Improvements Roadmap (as of 2026-05-17)
+
+**Completed (7/12):**
+- Adaptive polling (market hours detection, volatility-based intervals)
+- Alert deduplication (5-min cooldown per token per alert type)
+- CSV export (AG Grid built-in export)
+- Multiple watchlist groups (create/delete/switch)
+- Portfolio tracker (holdings with P&L, averaging, trade history)
+- Drawing tools (Camarilla/Supertrend/VWAP toggles + custom price lines)
+- Heat map view (RSI, change%, volume ratio, supertrend)
+
+**Not started (5/12):**
+- Virtual scrolling (for large watchlists)
+- WebSocket batching (reduce message frequency)
+- Mobile responsive layout
+- Backtesting
+- Voice commands
+
+See `improvements.md` for the full detailed prompt/spec.
 
 ---
 
