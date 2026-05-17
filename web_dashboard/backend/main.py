@@ -727,7 +727,9 @@ async def add_token(token: str, watchlist: str = "Default", user_id: str = Query
     if watchlist not in state.watchlists:
         state.watchlists[watchlist] = []
 
-    if token not in state.watchlists[watchlist]:
+    is_duplicate = token in state.watchlists[watchlist]
+
+    if not is_duplicate:
         state.watchlists[watchlist].append(token)
 
     # Update per-user watchlist and persist
@@ -784,7 +786,7 @@ async def add_token(token: str, watchlist: str = "Default", user_id: str = Query
     # Signal the poll loop to run immediately
     state.refresh_event.set()
 
-    return {"success": True, "token": token, "symbol": state.symbol_loader.token_to_symbol.get(token, "")}
+    return {"success": True, "token": token, "symbol": state.symbol_loader.token_to_symbol.get(token, ""), "duplicate": is_duplicate}
 
 
 @app.delete("/api/tokens/{token}")
@@ -1004,6 +1006,45 @@ async def add_holding(holding: PortfolioHolding):
         "type": "BUY",
         "timestamp": datetime.now().isoformat()
     })
+
+    # Fetch current price for the new holding
+    try:
+        loop = asyncio.get_event_loop()
+        await state.rate_limiter.acquire()
+        quote = await loop.run_in_executor(
+            state.executor, state.provider.get_live_quote, holding.token
+        )
+        if quote:
+            candles = state.provider.get_cached_candles(holding.token)
+            if candles is None:
+                await state.rate_limiter.acquire()
+                candles = await loop.run_in_executor(
+                    state.executor, state.provider.get_candles, holding.token, 5, "5m"
+                )
+            prev_day = state.provider.get_cached_prev_day(holding.token)
+            if prev_day is None:
+                await state.rate_limiter.acquire()
+                prev_day = await loop.run_in_executor(
+                    state.executor, state.provider.get_previous_day_candles, holding.token
+                )
+            indicators = calculate_all_indicators(candles, quote, prev_day)
+            symbol = state.provider.get_symbol(holding.token)
+            row = {
+                "token": holding.token,
+                "symbol": symbol,
+                **indicators,
+                "alert": check_alerts(holding.token, indicators),
+                "timestamp": datetime.now().isoformat()
+            }
+            state.token_data_cache[holding.token] = row
+            await state.broadcast({
+                "type": "update",
+                "data": list(state.token_data_cache.values()),
+                "timestamp": time.time(),
+                "alert_categories": _build_alert_categories()
+            })
+    except Exception as e:
+        logger.error(f"Error fetching price for portfolio holding {holding.token}: {e}")
 
     # Save to file
     _save_portfolio()

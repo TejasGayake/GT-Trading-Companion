@@ -565,7 +565,14 @@ function App() {
   const handleAddToken = async (token, symbol) => {
     try {
       const userId = getUserId();
-      await fetch(`${getApiUrl()}/api/tokens/add?token=${token}&watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, { method: 'POST' });
+      const res = await fetch(`${getApiUrl()}/api/tokens/add?token=${token}&watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, { method: 'POST' });
+      const data = await res.json();
+
+      if (data.duplicate) {
+        addToast(`${symbol} already in ${currentWatchlist}`, 'warning');
+        return;
+      }
+
       addToast(`Added ${symbol} to ${currentWatchlist}`, 'success');
       setShowAddToken(false);
       setSymbolSearchText('');

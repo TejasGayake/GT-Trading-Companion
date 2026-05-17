@@ -1273,7 +1273,12 @@
 
     async function addStock(token, symbol) {
       try {
-        await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+        const res = await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.duplicate) {
+          showToast(`${symbol} already in watchlist`, 'warning');
+          return;
+        }
         showToast(`Added ${symbol}`, 'success');
         closeAddTokenModal();
 
@@ -1530,7 +1535,12 @@
 
     async function inlineAddStock(token, symbol) {
       try {
-        await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+        const res = await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.duplicate) {
+          showToast(`${symbol} already in watchlist`, 'warning');
+          return;
+        }
         showToast(`Added ${symbol}`, 'success');
 
         // Hide all dropdowns

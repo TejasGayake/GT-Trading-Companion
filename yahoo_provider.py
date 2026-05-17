@@ -233,7 +233,18 @@ class YahooFinanceProvider:
                 open_price = info.open or current_price
                 high_price = info.day_high or current_price
                 low_price = info.day_low or current_price
-                close_price = info.previous_close or current_price
+                # Get previous close from history for accuracy (fast_info can be stale)
+                close_price = current_price  # fallback
+                try:
+                    hist_df = ticker.history(period="2d", interval="1d")
+                    if not hist_df.empty and len(hist_df) >= 2:
+                        close_price = float(hist_df['Close'].iloc[-2])
+                    elif not hist_df.empty and len(hist_df) == 1:
+                        close_price = float(hist_df['Close'].iloc[0])
+                    else:
+                        close_price = info.previous_close or current_price
+                except Exception:
+                    close_price = info.previous_close or current_price
 
                 # Volume - use different methods as FastInfo varies by version
                 try:

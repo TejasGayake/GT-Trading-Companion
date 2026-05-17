@@ -4,6 +4,7 @@
 
 import json
 import os
+import asyncio
 import logging
 from typing import Dict, List, Optional
 
@@ -25,6 +26,7 @@ class FileWatchlistStorage(WatchlistStorage):
 
     def __init__(self, filepath: str):
         self.filepath = filepath
+        self._lock = asyncio.Lock()
 
     async def load(self, user_id: str) -> Dict[str, List[str]]:
         try:
@@ -36,11 +38,12 @@ class FileWatchlistStorage(WatchlistStorage):
         return {"Default": []}
 
     async def save(self, user_id: str, watchlists: Dict[str, List[str]]) -> None:
-        try:
-            with open(self.filepath, 'w') as f:
-                json.dump(watchlists, f)
-        except Exception as e:
-            logger.error(f"Error saving watchlist to file: {e}")
+        async with self._lock:
+            try:
+                with open(self.filepath, 'w') as f:
+                    json.dump(watchlists, f)
+            except Exception as e:
+                logger.error(f"Error saving watchlist to file: {e}")
 
 
 class SupabaseWatchlistStorage(WatchlistStorage):
