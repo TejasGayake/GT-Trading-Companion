@@ -28,6 +28,7 @@ const getUserId = () => {
 // WebSocket connection
 let ws = null;
 let reconnectAttempts = 0;
+let reconnectTimeoutId = null;
 const MAX_RECONNECT_DELAY = 30000;
 
 function App() {
@@ -61,7 +62,12 @@ function App() {
 
   // Drawing tool state
   const [chartOverlays, setChartOverlays] = useState({ camarilla: true, supertrend: true, vwap: false });
-  const [customLines, setCustomLines] = useState([]);
+  const [customLines, setCustomLines] = useState(() => {
+    try {
+      const saved = localStorage.getItem('chart_custom_lines');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [customLinePrice, setCustomLinePrice] = useState('');
   const seriesRef = useRef(null);
 
@@ -163,6 +169,7 @@ function App() {
     fetchTrades();
 
     return () => {
+      if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
       if (ws) {
         ws.close();
       }
@@ -222,6 +229,13 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [ws, currentWatchlist, theme]);
 
+  // Persist custom lines to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('chart_custom_lines', JSON.stringify(customLines));
+    } catch {}
+  }, [customLines]);
+
   // Update chart when data changes
   useEffect(() => {
     if (showChart && chartData.length > 0) {
@@ -245,7 +259,8 @@ function App() {
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
       reconnectAttempts++;
       addToast('Disconnected from server', 'error');
-      setTimeout(connectWebSocket, delay);
+      if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
+      reconnectTimeoutId = setTimeout(connectWebSocket, delay);
     };
 
     ws.onmessage = (event) => {

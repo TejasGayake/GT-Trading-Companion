@@ -811,3 +811,39 @@ body {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Mobile touch scroll improvements */
+.grid-container {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.ag-body-viewport {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 768px) {
+  .ag-row {
+    touch-action: pan-y pinch-zoom;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  .main-content {
+    overscroll-behavior: contain;
+  }
+
+  .modal-overlay {
+    touch-action: none;
+    overflow: hidden;
+  }
+}
+
+/* Prevent body scroll when modal is open */
+body.modal-open {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+}
