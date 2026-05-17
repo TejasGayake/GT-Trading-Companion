@@ -233,17 +233,15 @@ class YahooFinanceProvider:
                 open_price = info.open or current_price
                 high_price = info.day_high or current_price
                 low_price = info.day_low or current_price
-                # Get previous close from history for accuracy (fast_info can be stale)
+                # Get previous close - check prev_day cache first to avoid extra API call
                 close_price = current_price  # fallback
-                try:
-                    hist_df = ticker.history(period="2d", interval="1d")
-                    if not hist_df.empty and len(hist_df) >= 2:
-                        close_price = float(hist_df['Close'].iloc[-2])
-                    elif not hist_df.empty and len(hist_df) == 1:
-                        close_price = float(hist_df['Close'].iloc[0])
-                    else:
-                        close_price = info.previous_close or current_price
-                except Exception:
+                prev_cache_key = f"prev_day_{token}"
+                if prev_cache_key in self._prev_day_cache:
+                    ts, prev_data = self._prev_day_cache[prev_cache_key]
+                    if time.time() - ts < self.PREV_DAY_CACHE_DURATION and prev_data and prev_data.get('close'):
+                        close_price = prev_data['close'] / 100  # cache stores paise
+                if close_price == current_price:
+                    # No cached prev_day, use fast_info as fallback
                     close_price = info.previous_close or current_price
 
                 # Volume - use different methods as FastInfo varies by version
