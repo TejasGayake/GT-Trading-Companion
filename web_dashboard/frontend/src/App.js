@@ -135,15 +135,21 @@ function App() {
     { headerName: 'CHANGE', field: 'change', width: 100, cellRenderer: p => formatChange(p.value), cellClass: getPriceClass },
     { headerName: '%CHANGE', field: 'change_percent', width: 130, cellRenderer: p => {
       const v = p.value;
-      if (v == null) return '-';
-      const pct = `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
-      let badge = '';
-      if (v > 3) badge = '<span class="badge strong-bullish">Strong</span>';
-      else if (v > 1) badge = '<span class="badge bullish">Up</span>';
-      else if (v < -3) badge = '<span class="badge strong-bearish">Strong</span>';
-      else if (v < -1) badge = '<span class="badge bearish">Down</span>';
-      else badge = '<span class="badge neutral">Flat</span>';
-      return `<span>${pct}</span> ${badge}`;
+      if (v == null) return document.createTextNode('-');
+      const container = document.createElement('span');
+      const pctSpan = document.createElement('span');
+      pctSpan.textContent = `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
+      container.appendChild(pctSpan);
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      if (v > 3) { badge.classList.add('strong-bullish'); badge.textContent = 'Strong'; }
+      else if (v > 1) { badge.classList.add('bullish'); badge.textContent = 'Up'; }
+      else if (v < -3) { badge.classList.add('strong-bearish'); badge.textContent = 'Strong'; }
+      else if (v < -1) { badge.classList.add('bearish'); badge.textContent = 'Down'; }
+      else { badge.classList.add('neutral'); badge.textContent = 'Flat'; }
+      container.appendChild(document.createTextNode(' '));
+      container.appendChild(badge);
+      return container;
     }, cellClass: getPercentClass },
     { headerName: 'VOLUME', field: 'volume', width: 120, cellRenderer: p => formatVolume(p.value) },
     { headerName: 'AVG VOL', field: 'avg_volume', width: 100, cellRenderer: p => formatVolume(p.value) },
