@@ -358,7 +358,7 @@ e9f4d17 Initial commit
 
 ## Improvements Roadmap (as of 2026-05-17)
 
-**Completed (7/12):**
+**Completed (10/12):**
 - Adaptive polling (market hours detection, volatility-based intervals)
 - Alert deduplication (5-min cooldown per token per alert type)
 - CSV export (AG Grid built-in export)
@@ -366,11 +366,11 @@ e9f4d17 Initial commit
 - Portfolio tracker (holdings with P&L, averaging, trade history)
 - Drawing tools (Camarilla/Supertrend/VWAP toggles + custom price lines)
 - Heat map view (RSI, change%, volume ratio, supertrend)
+- Virtual scrolling (AG Grid built-in row virtualization)
+- WebSocket delta updates (only broadcast changed tokens)
+- Mobile responsive (media queries + bottom nav with all tabs)
 
-**Not started (5/12):**
-- Virtual scrolling (for large watchlists)
-- WebSocket batching (reduce message frequency)
-- Mobile responsive layout
+**Not started (2/12):**
 - Backtesting
 - Voice commands
 
