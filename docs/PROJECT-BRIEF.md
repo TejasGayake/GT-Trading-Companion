@@ -12,11 +12,14 @@ A **real-time Indian stock market dashboard** that fetches live quotes from Yaho
 - Live watchlist with real-time price updates (WebSocket)
 - Multiple watchlist groups with create/delete/switch
 - Portfolio tracker with P&L, averaging, and trade history
-- Interactive charts with overlays (Camarilla H4/L4, Supertrend, VWAP) and custom price lines
-- Alert system (volume spike, RSI, camarilla breakout) with deduplication (5-min cooldown)
-- Heat map view for sector-wide visualization
+- Interactive charts with overlays (Camarilla H4/L4, Supertrend, VWAP), custom price lines, and timeframe selector (1D/5D/1M)
+- Alert system (volume spike, RSI, camarilla breakout) with deduplication (5-min cooldown) + user-created price alerts with browser notifications
+- Heat map view with RSI, change%, volume ratio, Supertrend, and Camarilla levels (H4/H3/L3/L4)
 - CSV export for data analysis
 - Adaptive polling (faster during market hours, slower off-hours)
+- WebSocket heartbeat with automatic reconnection and countdown UI
+- Dark/light mode with persistent theme preference
+- Default watchlist with 15 NSE stocks for new users
 
 **Two interfaces:**
 - **React frontend** (AG Grid + lightweight-charts) — deployed on Cloudflare Pages
@@ -141,7 +144,7 @@ GT Trading Companion/
 | POST | `/api/tokens/add?token=X&watchlist=Y` | Add token to watchlist |
 | DELETE | `/api/tokens/{token}?watchlist=Y` | Remove token from watchlist |
 | GET | `/api/symbols/search?q=X` | Search available symbols |
-| GET | `/api/candles/{token}` | Candlestick data for charts |
+| GET | `/api/candles/{token}?days=5` | Candlestick data for charts (days: 1, 5, 30) |
 | POST | `/api/alerts/clear` | Clear all alerts |
 | GET | `/api/portfolio` | Get portfolio holdings with live P&L |
 | POST | `/api/portfolio` | Add/update holding (quantity averaging) |
@@ -304,6 +307,66 @@ Set at: Render Dashboard → gt-trading-backend → Environment
 
 ---
 
+## improvementsv2.md Features Implemented (2026-05-17)
+
+### 1. Default Stocks for New Users
+**Problem:** New users saw empty watchlist with no stocks.
+
+**Fix:** Backend now seeds 15 default NSE stocks (RELIANCE, TCS, HDFCBANK, INFY, ICICIBANK, HINDUNILVR, ITC, SBIN, BHARTIARTL, KOTAKBANK, LT, AXISBANK, MARUTI, SUNPHARMA, WIPRO) when watchlist is empty on first load.
+
+### 2. WebSocket Heartbeat + Reconnect UI
+**Problem:** Users saw "Disconnected" with no indication of reconnection attempts.
+
+**Fix:**
+- Backend sends `{"type": "ping"}` every 15 seconds to all WebSocket clients
+- Frontend responds with `{"type": "pong"}` to acknowledge connection
+- On miss, frontend shows "Reconnecting in Xs" with countdown timer
+- Manual "Retry Now" button allows immediate reconnection attempt
+- Exponential backoff (1s, 2s, 4s, 8s...) prevents server hammering
+
+### 3. Error Messaging with Specific Types
+**Problem:** Generic "Failed to add token" errors with no guidance.
+
+**Fix:** `parseError()` function detects specific error types:
+- Rate limit (429) → "Rate limit exceeded - please wait a moment before retrying"
+- Network error → "Network error - check your internet connection"
+- Invalid symbol → "Invalid symbol - use .NS suffix for NSE stocks"
+- Toast duration extended to 8s for warnings/errors
+
+### 4. Camarilla in Heat Map + Tooltips
+**Problem:** Heat map showed RSI, change%, vol ratio, supertrend but missing Camarilla levels.
+
+**Fix:**
+- Added H4, H3, L3, L4 columns to heat map
+- Proximity-based coloring: cells turn red when LTP is within 0.5% of level
+- Tooltips on all indicators explaining what each value means
+- Heat map now scrollable horizontally for all columns
+
+### 5. Chart Timeframe Selector
+**Problem:** Charts always showed 5-day data with no way to change timeframe.
+
+**Fix:** Added 1D/5D/1M buttons in chart modal header. Selecting a timeframe re-fetches candle data with appropriate `days` parameter (1, 5, or 30).
+
+### 6. User-Created Alerts with Browser Notifications
+**Problem:** Only system-generated alerts (volume spike, RSI, camarilla). No way to set custom price alerts.
+
+**Fix:**
+- "Create Alert" button in Alerts tab opens modal
+- Select stock from dropdown (shows current LTP)
+- Choose condition: "Price goes above" or "Price goes below"
+- Enter target price
+- Alerts stored in `localStorage('user_alerts')`
+- Checked against live prices every update cycle
+- Browser Notification API integration (permission requested on first alert)
+- Triggered alerts show "TRIGGERED" badge with reset option
+
+### 7. Dark/Light Mode Persistence
+**Problem:** Theme reset to dark on every page refresh.
+
+**Fix:** Theme saved to `localStorage('gt_theme')` on toggle, restored on component mount. Uses `useState(() => localStorage.getItem('gt_theme') || 'dark')` for lazy initialization.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -337,6 +400,12 @@ Set at: Render Dashboard → gt-trading-backend → Environment
 ## Commit History
 
 ```
+[Latest] improvementsv2.md items: default stocks, WebSocket heartbeat, user alerts, theme persistence, Camarilla heat map, chart timeframes, error messaging
+367158b Fix STATUS column showing ERROR for all rows
+76d0949 Fix React error #31: use React component for badge cellRenderer
+5087574 Remove demo watchlist feature
+b7c279d Fix performance badge rendering: use DOM elements instead of HTML string
+1ef8461 Fix 4 remaining bugs from improvementsv2.md
 0fd4a77 Fix: move drawing tool state declarations before useEffect reference
 7d97451 Complete partial features: watchlists, portfolio, drawing tools
 3a46277 Expand deployment pipeline docs with auto-deploy workflow
@@ -373,6 +442,24 @@ e9f4d17 Initial commit
 - Keyboard shortcuts (Ctrl+A/F/E/D, F5, Escape)
 - CSV bulk upload (upload CSV to add multiple stocks at once)
 - Performance monitoring (/api/metrics endpoint)
+
+**improvementsv2.md Items Completed (2026-05-17):**
+
+| # | Feature | Priority | Status | Implementation |
+|---|---------|----------|--------|----------------|
+| 1 | Default stocks for new users | P0 | ✅ Done | Backend seeds 15 NSE stocks when watchlist is empty |
+| 2 | Error messaging with specific types | P1 | ✅ Done | `parseError()` detects rate limit, network, invalid symbol errors |
+| 3 | WebSocket heartbeat + reconnect UI | P0 | ✅ Done | Server sends ping every 15s, client shows "Reconnecting in Xs" with countdown |
+| 4 | Persist dark/light mode | P2 | ✅ Done | Theme saved to `localStorage('gt_theme')`, restored on load |
+| 5 | User-created alerts | P2 | ✅ Done | "Create Alert" modal with price above/below conditions, browser notifications |
+| 6 | Camarilla in heat map + tooltips | P1 | ✅ Done | H4/H3/L3/L4 columns with proximity coloring, tooltips on all indicators |
+| 7 | Chart timeframe selector | P2 | ✅ Done | 1D/5D/1M buttons in chart modal, fetches appropriate data |
+
+**Key implementation details:**
+- **WebSocket heartbeat**: Backend sends `{"type": "ping", "ts": ...}` every 15 seconds, client responds with `{"type": "pong"}`. On miss, frontend shows reconnect countdown with exponential backoff.
+- **User alerts**: Stored in `localStorage('user_alerts')`. Checked against live prices in `useEffect`. Uses browser Notification API (permission requested on first alert creation).
+- **Camarilla heat map**: Shows H4, H3, L3, L4 columns. Cells turn red when LTP is within 0.5% of level (proximity-based coloring).
+- **Default stocks**: Seeded tokens: RELIANCE, TCS, HDFCBANK, INFY, ICICIBANK, HINDUNILVR, ITC, SBIN, BHARTIARTL, KOTAKBANK, LT, AXISBANK, MARUTI, SUNPHARMA, WIPRO.
 
 **Remaining (from original 12):**
 - Backtesting

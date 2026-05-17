@@ -56,12 +56,14 @@ const MAX_RECONNECT_DELAY = 30000;
 
 function App() {
   // State
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('gt_theme') || 'dark');
   const [activeSheet, setActiveSheet] = useState('live');
   const [rowData, setRowData] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [alertCategories, setAlertCategories] = useState({ camarilla: [], volume_spike: [], volume_sma8: [] });
   const [connected, setConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected'); // 'connected', 'reconnecting', 'disconnected'
+  const [reconnectCountdown, setReconnectCountdown] = useState(0);
   const [dataLoading, setDataLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [searchText, setSearchText] = useState('');
@@ -70,6 +72,7 @@ function App() {
   const [showChart, setShowChart] = useState(false);
   const [chartToken, setChartToken] = useState(null);
   const [chartData, setChartData] = useState([]);
+  const [chartTimeframe, setChartTimeframe] = useState('5d'); // '1d', '5d', '1mo'
   const [toasts, setToasts] = useState([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [instruments, setInstruments] = useState([]);
@@ -83,6 +86,16 @@ function App() {
   const [newHolding, setNewHolding] = useState({ token: '', symbol: '', quantity: '', buy_price: '' });
   const [trades, setTrades] = useState([]);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('watchlistViewMode') || 'table');
+
+  // User-created alerts
+  const [userAlerts, setUserAlerts] = useState(() => {
+    try {
+      const saved = localStorage.getItem('user_alerts');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [showCreateAlert, setShowCreateAlert] = useState(false);
+  const [newAlert, setNewAlert] = useState({ token: '', symbol: '', condition: 'above', price: '' });
 
   // Drawing tool state
   const [chartOverlays, setChartOverlays] = useState({ camarilla: true, supertrend: true, vwap: false });
@@ -270,23 +283,45 @@ function App() {
 
     ws.onopen = () => {
       setConnected(true);
+      setConnectionStatus('connected');
+      setReconnectCountdown(0);
       reconnectAttempts = 0;
       addToast('Connected to server', 'success');
     };
 
     ws.onclose = () => {
       setConnected(false);
+      setConnectionStatus('reconnecting');
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
       reconnectAttempts++;
       addToast('Disconnected from server', 'error');
+
+      // Show countdown
+      let remaining = Math.ceil(delay / 1000);
+      setReconnectCountdown(remaining);
+      const countdownInterval = setInterval(() => {
+        remaining--;
+        setReconnectCountdown(remaining);
+        if (remaining <= 0) clearInterval(countdownInterval);
+      }, 1000);
+
       if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
-      reconnectTimeoutId = setTimeout(connectWebSocket, delay);
+      reconnectTimeoutId = setTimeout(() => {
+        clearInterval(countdownInterval);
+        connectWebSocket();
+      }, delay);
     };
 
     ws.onmessage = (event) => {
       const message = JSON.parse(event.data);
 
       switch (message.type) {
+        case 'ping':
+          // Respond to server heartbeat
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'pong' }));
+          }
+          break;
         case 'init':
           if (message.watchlists) {
             setWatchlists(message.watchlists);
@@ -366,7 +401,8 @@ function App() {
       fetchPortfolio();
       addToast('Added to portfolio', 'success');
     } catch (e) {
-      addToast('Failed to add holding', 'error');
+      const err = parseError(e, 'add holding');
+      addToast(err.message, err.type, err.duration);
     }
   };
 
@@ -407,13 +443,113 @@ function App() {
     }
   };
 
-  const addToast = (message, type = 'info') => {
+  const addToast = (message, type = 'info', duration = 5000) => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 5000);
+    }, duration);
   };
+
+  // Parse error responses into user-friendly messages
+  const parseError = (error, context = '') => {
+    const msg = error?.message || String(error);
+    if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')) {
+      return { message: `Rate limit exceeded - please wait a moment before retrying${context ? ` (${context})` : ''}`, type: 'warning', duration: 8000 };
+    }
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ERR_NETWORK')) {
+      return { message: `Network error - check your internet connection${context ? ` (${context})` : ''}`, type: 'error', duration: 8000 };
+    }
+    if (msg.includes('invalid') && msg.includes('symbol')) {
+      return { message: `Invalid symbol - use .NS suffix for NSE stocks${context ? ` (${context})` : ''}`, type: 'warning', duration: 8000 };
+    }
+    return { message: `Error${context ? ` (${context})` : ''}: ${msg}`, type: 'error' };
+  };
+
+  // User alert functions
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      await Notification.requestPermission();
+    }
+  };
+
+  const sendBrowserNotification = (title, body) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, { body, icon: '/favicon.ico' });
+    }
+  };
+
+  const createUserAlert = () => {
+    if (!newAlert.token || !newAlert.price || isNaN(parseFloat(newAlert.price))) {
+      addToast('Please select a stock and enter a valid price', 'warning');
+      return;
+    }
+
+    const alert = {
+      id: Date.now(),
+      token: newAlert.token,
+      symbol: newAlert.symbol,
+      condition: newAlert.condition,
+      price: parseFloat(newAlert.price),
+      createdAt: new Date().toISOString(),
+      triggered: false
+    };
+
+    const updated = [...userAlerts, alert];
+    setUserAlerts(updated);
+    localStorage.setItem('user_alerts', JSON.stringify(updated));
+    setShowCreateAlert(false);
+    setNewAlert({ token: '', symbol: '', condition: 'above', price: '' });
+    addToast(`Alert created: ${alert.symbol} ${alert.condition} ₹${alert.price}`, 'success');
+    requestNotificationPermission();
+  };
+
+  const deleteUserAlert = (id) => {
+    const updated = userAlerts.filter(a => a.id !== id);
+    setUserAlerts(updated);
+    localStorage.setItem('user_alerts', JSON.stringify(updated));
+  };
+
+  const toggleUserAlert = (id) => {
+    const updated = userAlerts.map(a => a.id === id ? { ...a, triggered: false } : a);
+    setUserAlerts(updated);
+    localStorage.setItem('user_alerts', JSON.stringify(updated));
+  };
+
+  // Check user alerts against current prices
+  useEffect(() => {
+    if (rowData.length === 0 || userAlerts.length === 0) return;
+
+    userAlerts.forEach(alert => {
+      if (alert.triggered) return;
+
+      const stock = rowData.find(d => d.token === alert.token);
+      if (!stock || !stock.ltp) return;
+
+      const ltp = stock.ltp;
+      let shouldTrigger = false;
+
+      if (alert.condition === 'above' && ltp >= alert.price) {
+        shouldTrigger = true;
+      } else if (alert.condition === 'below' && ltp <= alert.price) {
+        shouldTrigger = true;
+      }
+
+      if (shouldTrigger) {
+        const title = `Price Alert: ${alert.symbol}`;
+        const body = `${alert.symbol} is now ₹${ltp.toFixed(2)} (${alert.condition} ₹${alert.price})`;
+        sendBrowserNotification(title, body);
+        addToast(body, 'warning', 10000);
+
+        // Mark as triggered
+        setUserAlerts(prev => {
+          const updated = prev.map(a => a.id === alert.id ? { ...a, triggered: true } : a);
+          localStorage.setItem('user_alerts', JSON.stringify(updated));
+          return updated;
+        });
+      }
+    });
+  }, [rowData, userAlerts]);
 
   // Grid filter
   const onFilterTextChange = (e) => {
@@ -425,14 +561,26 @@ function App() {
   const onRowDoubleClick = async (event) => {
     const token = event.data.token;
     setChartToken(token);
+    setChartTimeframe('5d'); // Default to 5 days
+    await fetchChartData(token, '5d');
+    setShowChart(true);
+  };
 
+  const fetchChartData = async (token, timeframe) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/candles/${token}`);
+      const response = await fetch(`${getApiUrl()}/api/candles/${token}?days=${timeframe === '1d' ? 1 : timeframe === '5d' ? 5 : 30}`);
       const data = await response.json();
       setChartData(data.candles || []);
-      setShowChart(true);
     } catch (e) {
-      addToast('Failed to load chart data', 'error');
+      const err = parseError(e, 'chart data');
+      addToast(err.message, err.type, err.duration);
+    }
+  };
+
+  const changeChartTimeframe = (tf) => {
+    setChartTimeframe(tf);
+    if (chartToken) {
+      fetchChartData(chartToken, tf);
     }
   };
 
@@ -601,7 +749,8 @@ function App() {
         ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
       }
     } catch (e) {
-      addToast('Failed to add token', 'error');
+      const err = parseError(e, 'add stock');
+      addToast(err.message, err.type, err.duration);
     }
   };
 
@@ -776,6 +925,20 @@ function App() {
   // Toggle theme
   const toggleTheme = () => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
+
+  // Persist theme to localStorage
+  useEffect(() => {
+    localStorage.setItem('gt_theme', theme);
+  }, [theme]);
+
+  // Manual reconnect
+  const manualReconnect = () => {
+    if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
+    reconnectAttempts = 0;
+    setConnectionStatus('reconnecting');
+    setReconnectCountdown(0);
+    connectWebSocket();
   };
 
   // Select stock from alerts
@@ -1037,6 +1200,48 @@ function App() {
 
         {/* Alerts Sheet - 3 Columns */}
         <div className={`sheet-view ${activeSheet === 'alerts' ? 'active' : ''}`}>
+          {/* User Alerts Section */}
+          <div style={{ marginBottom: '16px', padding: '12px', background: 'var(--card-bg, #1e1e1e)', borderRadius: '8px', border: '1px solid var(--border, #333)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '14px' }}>My Price Alerts</h3>
+              <button className="toolbar-btn primary" onClick={() => setShowCreateAlert(true)} style={{ padding: '6px 12px', fontSize: '12px' }}>
+                + Create Alert
+              </button>
+            </div>
+            {userAlerts.length === 0 ? (
+              <p style={{ color: '#888', margin: 0, fontSize: '13px' }}>No custom alerts. Create one to get notified when a stock crosses a price level.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {userAlerts.map(alert => (
+                  <div key={alert.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '8px 12px', background: alert.triggered ? 'rgba(255,152,0,0.1)' : 'transparent',
+                    border: '1px solid var(--border, #333)', borderRadius: '6px',
+                    opacity: alert.triggered ? 0.7 : 1
+                  }}>
+                    <div>
+                      <span style={{ fontWeight: 'bold' }}>{alert.symbol}</span>
+                      <span style={{ color: '#888', marginLeft: '8px' }}>
+                        {alert.condition === 'above' ? '≥' : '≤'} ₹{alert.price.toFixed(2)}
+                      </span>
+                      {alert.triggered && <span style={{ color: '#ffa500', marginLeft: '8px', fontSize: '11px' }}>TRIGGERED</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {alert.triggered && (
+                        <button className="toolbar-btn" onClick={() => toggleUserAlert(alert.id)} style={{ padding: '4px 8px', fontSize: '11px' }}>
+                          Reset
+                        </button>
+                      )}
+                      <button className="toolbar-btn" onClick={() => deleteUserAlert(alert.id)} style={{ padding: '4px 8px', fontSize: '11px', color: '#f44336' }}>
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="alerts-columns">
             {/* Volume Spike Column */}
             <div className="alert-column">
@@ -1140,15 +1345,19 @@ function App() {
               <span className="legend-item"><span className="legend-color" style={{ background: '#fff' }}></span> Neutral</span>
               <span className="legend-item"><span className="legend-color" style={{ background: '#f44336' }}></span> Overbought / High</span>
             </div>
-            <div className="heatmap-grid">
+            <div className="heatmap-grid" style={{ overflowX: 'auto' }}>
               {/* Header row */}
               <div className="heatmap-row heatmap-header">
-                <div className="heatmap-cell heatmap-label">Stock</div>
-                <div className="heatmap-cell">RSI</div>
-                <div className="heatmap-cell">LTP</div>
-                <div className="heatmap-cell">Change%</div>
-                <div className="heatmap-cell">Vol/SMA8</div>
-                <div className="heatmap-cell">Supertrend</div>
+                <div className="heatmap-cell heatmap-label" title="Stock symbol">Stock</div>
+                <div className="heatmap-cell" title="RSI (14): >70 overbought, <30 oversold">RSI</div>
+                <div className="heatmap-cell" title="Last Traded Price">LTP</div>
+                <div className="heatmap-cell" title="Price change percentage">Change%</div>
+                <div className="heatmap-cell" title="Volume / SMA(8) ratio: >2x indicates spike">Vol/SMA8</div>
+                <div className="heatmap-cell" title="Supertrend signal: BUY (bullish) or SELL (bearish)">Supertrend</div>
+                <div className="heatmap-cell" title="Camarilla H4: Strong resistance level">H4</div>
+                <div className="heatmap-cell" title="Camarilla H3: Resistance level">H3</div>
+                <div className="heatmap-cell" title="Camarilla L3: Support level">L3</div>
+                <div className="heatmap-cell" title="Camarilla L4: Strong support level">L4</div>
               </div>
               {/* Data rows */}
               {rowData.map(item => {
@@ -1168,14 +1377,33 @@ function App() {
                                 item.supertrend_signal === 'SELL' ? 'rgba(244,67,54,0.3)' :
                                 'transparent';
 
+                // Camarilla proximity colors (closer to level = stronger color)
+                const ltp = item.ltp || 0;
+                const camarillaH4 = item.Camarilla_H4 || 0;
+                const camarillaH3 = item.Camarilla_H3 || 0;
+                const camarillaL3 = item.Camarilla_L3 || 0;
+                const camarillaL4 = item.Camarilla_L4 || 0;
+
+                const getProximityColor = (level) => {
+                  if (!level || !ltp) return 'transparent';
+                  const pct = Math.abs((ltp - level) / ltp) * 100;
+                  if (pct < 0.5) return 'rgba(244,67,54,0.6)'; // Very close - strong red
+                  if (pct < 1) return 'rgba(244,67,54,0.3)';   // Close - light red
+                  return 'transparent';
+                };
+
                 return (
                   <div key={item.token} className="heatmap-row">
                     <div className="heatmap-cell heatmap-label">{item.symbol}</div>
-                    <div className="heatmap-cell" style={{ background: rsiColor }}>{rsi.toFixed(0)}</div>
-                    <div className="heatmap-cell">₹{item.ltp?.toFixed(2)}</div>
-                    <div className="heatmap-cell" style={{ background: changeColor }}>{change > 0 ? '+' : ''}{change.toFixed(2)}%</div>
-                    <div className="heatmap-cell" style={{ background: volColor }}>{volRatio.toFixed(1)}x</div>
-                    <div className="heatmap-cell" style={{ background: stColor }}>{item.supertrend_signal || '-'}</div>
+                    <div className="heatmap-cell" style={{ background: rsiColor }} title={`RSI: ${rsi.toFixed(1)}`}>{rsi.toFixed(0)}</div>
+                    <div className="heatmap-cell" title={`LTP: ₹${ltp?.toFixed(2)}`}>₹{ltp?.toFixed(2)}</div>
+                    <div className="heatmap-cell" style={{ background: changeColor }} title={`Change: ${change > 0 ? '+' : ''}${change.toFixed(2)}%`}>{change > 0 ? '+' : ''}{change.toFixed(2)}%</div>
+                    <div className="heatmap-cell" style={{ background: volColor }} title={`Vol/SMA8: ${volRatio.toFixed(2)}x`}>{volRatio.toFixed(1)}x</div>
+                    <div className="heatmap-cell" style={{ background: stColor }} title={`Supertrend: ${item.supertrend_signal || 'N/A'}`}>{item.supertrend_signal || '-'}</div>
+                    <div className="heatmap-cell" style={{ background: getProximityColor(camarillaH4) }} title={`H4 (Strong Resistance): ₹${camarillaH4?.toFixed(2)}`}>{camarillaH4 ? `₹${camarillaH4.toFixed(0)}` : '-'}</div>
+                    <div className="heatmap-cell" style={{ background: getProximityColor(camarillaH3) }} title={`H3 (Resistance): ₹${camarillaH3?.toFixed(2)}`}>{camarillaH3 ? `₹${camarillaH3.toFixed(0)}` : '-'}</div>
+                    <div className="heatmap-cell" style={{ background: getProximityColor(camarillaL3) }} title={`L3 (Support): ₹${camarillaL3?.toFixed(2)}`}>{camarillaL3 ? `₹${camarillaL3.toFixed(0)}` : '-'}</div>
+                    <div className="heatmap-cell" style={{ background: getProximityColor(camarillaL4) }} title={`L4 (Strong Support): ₹${camarillaL4?.toFixed(2)}`}>{camarillaL4 ? `₹${camarillaL4.toFixed(0)}` : '-'}</div>
                   </div>
                 );
               })}
@@ -1331,8 +1559,17 @@ function App() {
       {/* Status Bar */}
       <div className="status-bar">
         <div className="status-item">
-          <span className={`status-dot ${connected ? '' : 'disconnected'}`}></span>
-          {connected ? 'Connected' : 'Disconnected'}
+          <span className={`status-dot ${connectionStatus === 'connected' ? '' : connectionStatus === 'reconnecting' ? 'reconnecting' : 'disconnected'}`}></span>
+          {connectionStatus === 'connected' && 'Connected'}
+          {connectionStatus === 'reconnecting' && (
+            <>
+              Reconnecting{reconnectCountdown > 0 ? ` in ${reconnectCountdown}s` : '...'}
+              <button className="toolbar-btn-sm" onClick={manualReconnect} style={{ marginLeft: 8, padding: '2px 8px', fontSize: '11px' }}>
+                Retry Now
+              </button>
+            </>
+          )}
+          {connectionStatus === 'disconnected' && 'Disconnected'}
         </div>
         <div className="status-item">
           Last Update: {lastUpdate ? lastUpdate.toLocaleTimeString() : '-'}
@@ -1494,6 +1731,59 @@ function App() {
         </div>
       )}
 
+      {/* Create Alert Modal */}
+      {showCreateAlert && (
+        <div className="modal-overlay" onClick={() => setShowCreateAlert(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h3 className="modal-title">Create Price Alert</h3>
+            <div className="modal-form">
+              <div className="form-group">
+                <label>Stock</label>
+                <select
+                  className="modal-input"
+                  value={newAlert.token}
+                  onChange={e => {
+                    const token = e.target.value;
+                    const stock = rowData.find(d => d.token === token);
+                    setNewAlert({ ...newAlert, token, symbol: stock?.symbol || '' });
+                  }}
+                >
+                  <option value="">Select a stock...</option>
+                  {rowData.map(item => (
+                    <option key={item.token} value={item.token}>{item.symbol} (₹{item.ltp?.toFixed(2)})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Condition</label>
+                <select
+                  className="modal-input"
+                  value={newAlert.condition}
+                  onChange={e => setNewAlert({ ...newAlert, condition: e.target.value })}
+                >
+                  <option value="above">Price goes above</option>
+                  <option value="below">Price goes below</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Target Price (₹)</label>
+                <input
+                  type="number"
+                  className="modal-input"
+                  placeholder="e.g., 2500.00"
+                  value={newAlert.price}
+                  onChange={e => setNewAlert({ ...newAlert, price: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="toolbar-btn primary" onClick={createUserAlert}>Create Alert</button>
+              <button className="toolbar-btn" onClick={() => setShowCreateAlert(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chart Modal */}
       {showChart && (
         <div className="chart-modal">
@@ -1501,6 +1791,25 @@ function App() {
             <div className="chart-header">
               <h3>{chartToken} - Candlestick Chart</h3>
               <div className="chart-tools">
+                {/* Timeframe selector */}
+                <div className="timeframe-selector" style={{ display: 'flex', gap: '4px', marginRight: '8px' }}>
+                  <button
+                    className={`chart-tool-btn ${chartTimeframe === '1d' ? 'active' : ''}`}
+                    onClick={() => changeChartTimeframe('1d')}
+                    title="1 Day"
+                  >1D</button>
+                  <button
+                    className={`chart-tool-btn ${chartTimeframe === '5d' ? 'active' : ''}`}
+                    onClick={() => changeChartTimeframe('5d')}
+                    title="5 Days"
+                  >5D</button>
+                  <button
+                    className={`chart-tool-btn ${chartTimeframe === '1mo' ? 'active' : ''}`}
+                    onClick={() => changeChartTimeframe('1mo')}
+                    title="1 Month"
+                  >1M</button>
+                </div>
+                <span style={{ borderLeft: '1px solid #555', margin: '0 4px', height: '20px' }}></span>
                 <button
                   className={`chart-tool-btn ${chartOverlays.camarilla ? 'active' : ''}`}
                   onClick={() => toggleOverlay('camarilla')}

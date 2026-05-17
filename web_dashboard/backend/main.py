@@ -504,10 +504,12 @@ async def lifespan(app: FastAPI):
 
     state.provider = YahooFinanceProvider(state.yahoo_mapping)
 
-    # Load saved watchlist (start empty if no saved watchlist)
+    # Load saved watchlist (seed defaults for new users)
     await state.load_watchlist()
     if not state.watchlists.get("Default"):
-        state.watchlists["Default"] = []  # Start empty - user adds stocks
+        default_tokens = ["2885", "1594", "11536", "16669", "1330", "14977", "1660", "1394", "5258", "3045", "317", "10999", "1363", "3456", "2475"]
+        state.watchlists["Default"] = [t for t in default_tokens if t in state.yahoo_mapping]
+        logger.info(f"Seeded default watchlist with {len(state.watchlists['Default'])} stocks")
 
     # Load portfolio
     _load_portfolio()
@@ -566,25 +568,39 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str = Query("local")
             "alert_categories": _build_alert_categories()
         })
 
-        # Keep alive
-        while True:
-            data = await websocket.receive_text()
-            msg = json.loads(data)
+        # Keep alive with heartbeat
+        async def send_heartbeat():
+            while True:
+                try:
+                    await asyncio.sleep(15)
+                    await websocket.send_json({"type": "ping", "ts": time.time()})
+                except Exception:
+                    break
 
-            if msg.get("type") == "subscribe":
-                watchlist = msg.get("watchlist", "Default")
-                # If action is refresh, trigger immediate data fetch
-                if msg.get("action") == "refresh":
-                    state.refresh_event.set()
-                await websocket.send_json({
-                    "type": "subscribed",
-                    "watchlist": watchlist,
-                    "tokens": state.watchlists.get(watchlist, [])
-                })
+        heartbeat_task = asyncio.create_task(send_heartbeat())
+
+        try:
+            while True:
+                data = await websocket.receive_text()
+                msg = json.loads(data)
+
+                if msg.get("type") == "pong":
+                    continue  # Client acknowledged ping
+
+                if msg.get("type") == "subscribe":
+                    watchlist = msg.get("watchlist", "Default")
+                    if msg.get("action") == "refresh":
+                        state.refresh_event.set()
+                    await websocket.send_json({
+                        "type": "subscribed",
+                        "watchlist": watchlist,
+                        "tokens": state.watchlists.get(watchlist, [])
+                    })
+        finally:
+            heartbeat_task.cancel()
 
     except WebSocketDisconnect:
         state.websocket_clients.discard(websocket)
-        # Clean up user watchlist tracking
         state.user_watchlists.pop(user_id, None)
         state.rebuild_global_watchlists()
 
