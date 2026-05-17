@@ -111,6 +111,7 @@ class DashboardState:
         self.user_watchlists: Dict[str, Dict[str, List[str]]] = {}
         self.active_tokens: Set[str] = set()
         self.token_data_cache: Dict[str, dict] = {}
+        self.last_broadcast_cache: Dict[str, dict] = {}  # For delta updates
         self.alerts: List[dict] = []
         self.last_update: float = 0
         self.running: bool = False
@@ -125,6 +126,13 @@ class DashboardState:
         self.current_user_id: str = "local"
         self.alert_cooldown: Dict[str, float] = {}  # "token:alert_type" -> last_trigger_time
         self.alert_cooldown_seconds: int = 300  # 5 minutes cooldown per alert type per token
+        # Metrics
+        self.metrics = {
+            "requests": 0,
+            "errors": 0,
+            "ws_messages_sent": 0,
+            "poll_cycles": 0,
+        }
 
     async def save_watchlist(self, user_id: Optional[str] = None):
         """Save watchlist via storage backend"""
@@ -430,15 +438,31 @@ async def poll_data():
                         state.token_data_cache[token]["last_error"] = str(e)
                         state.token_data_cache[token]["error_count"] = state.token_data_cache[token].get("error_count", 0) + 1
 
-            # Broadcast all data with categorized alerts
+            # Broadcast delta updates (only changed tokens)
             state.last_update = time.time()
+            state.metrics["poll_cycles"] += 1
 
-            await state.broadcast({
-                "type": "update",
-                "data": list(state.token_data_cache.values()),
-                "timestamp": state.last_update,
-                "alert_categories": _build_alert_categories()
-            })
+            # Find changed tokens by comparing with last broadcast
+            changed_tokens = []
+            for token, row in state.token_data_cache.items():
+                last = state.last_broadcast_cache.get(token)
+                if last is None or last != row:
+                    changed_tokens.append(row)
+
+            # Only broadcast if there are changes or new connections
+            if changed_tokens:
+                message = {
+                    "type": "update",
+                    "data": list(state.token_data_cache.values()),
+                    "delta": changed_tokens,
+                    "timestamp": state.last_update,
+                    "alert_categories": _build_alert_categories()
+                }
+                await state.broadcast(message)
+                state.metrics["ws_messages_sent"] += len(state.websocket_clients)
+
+                # Update last broadcast cache
+                state.last_broadcast_cache = {k: dict(v) for k, v in state.token_data_cache.items()}
 
             # Wait for refresh signal or timeout (adaptive interval)
             interval = get_adaptive_interval()
@@ -587,6 +611,28 @@ async def health():
         "users_online": len(state.user_watchlists),
         "uptime": time.time() - state.start_time,
         "poll_running": state.running
+    }
+
+
+@app.get("/api/metrics")
+async def metrics():
+    """Performance metrics endpoint"""
+    import sys
+    uptime = time.time() - state.start_time
+    return {
+        "uptime_seconds": round(uptime, 1),
+        "uptime_human": f"{int(uptime//3600)}h {int((uptime%3600)//60)}m {int(uptime%60)}s",
+        "active_tokens": len(state.token_data_cache),
+        "connected_clients": len(state.websocket_clients),
+        "users_online": len(state.user_watchlists),
+        "total_alerts": len(state.alerts),
+        "portfolio_holdings": len(state.portfolio),
+        "poll_cycles": state.metrics["poll_cycles"],
+        "ws_messages_sent": state.metrics["ws_messages_sent"],
+        "cache_size_tokens": len(state.token_data_cache),
+        "cache_size_broadcast": len(state.last_broadcast_cache),
+        "memory_mb": round(sys.getsizeof(state.token_data_cache) / 1024 / 1024, 2),
+        "rate_limiter_calls": state.rate_limiter.calls if hasattr(state.rate_limiter, 'calls') else 0,
     }
 
 
