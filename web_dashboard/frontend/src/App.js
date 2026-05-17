@@ -657,41 +657,6 @@ function App() {
     if (csvFileRef.current) csvFileRef.current.value = '';
   };
 
-  // Demo watchlist - load popular stocks
-  const DEMO_TOKENS = ['2885', '1594', '3045', '11536', '1660', '1394', '4963'];
-
-  const handleLoadDemo = async () => {
-    const existingTokens = rowData.map(r => r.token);
-    const newTokens = DEMO_TOKENS.filter(t => !existingTokens.includes(t));
-    if (newTokens.length === 0) {
-      addToast('All demo stocks already in watchlist', 'info');
-      return;
-    }
-
-    let added = 0;
-    for (const token of newTokens) {
-      try {
-        const userId = getUserId();
-        await fetch(`${getApiUrl()}/api/tokens/add?token=${token}&watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, { method: 'POST' });
-        added++;
-      } catch (e) {
-        // continue
-      }
-    }
-
-    if (added > 0) {
-      addToast(`Added ${added} demo stocks to ${currentWatchlist}`, 'success');
-      setWatchlists(prev => {
-        const wl = prev[currentWatchlist] || [];
-        const toAdd = newTokens.filter(t => !wl.includes(t));
-        return { ...prev, [currentWatchlist]: [...wl, ...toAdd] };
-      });
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
-      }
-    }
-  };
-
   // Quick add group
   const handleQuickAddGroup = async (token) => {
     const userId = getUserId();
@@ -985,10 +950,6 @@ function App() {
                 onAddGroup={handleQuickAddGroup}
                 currentTokens={rowData.map(r => r.token)}
               />
-
-              <button className="empty-demo-btn" onClick={handleLoadDemo}>
-                Load Demo Watchlist (7 stocks)
-              </button>
 
               <div className="empty-search-wrapper">
                 <TokenSearch

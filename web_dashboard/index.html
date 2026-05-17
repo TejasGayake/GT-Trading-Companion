@@ -563,7 +563,6 @@
             <button class="quick-add-btn" onclick="quickAddGroup('banknifty')">+ BANK NIFTY</button>
             <button class="quick-add-btn" onclick="quickAddGroup('highvol')">+ High Volume</button>
           </div>
-          <button class="empty-demo-btn" onclick="loadDemoWatchlist()">Load Demo Watchlist (7 stocks)</button>
           <div class="token-search" id="emptySearch">
             <div class="token-search-wrapper">
               <svg class="token-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -707,7 +706,6 @@
     let chart = null;
     let viewMode = localStorage.getItem('watchlistViewMode') || 'table';
 
-    const DEMO_TOKENS = ['2885', '1594', '3045', '11536', '1660', '1394', '4963'];
     const POPULAR_LISTS = {
       nifty50: ['2885', '3045', '1594', '11536', '1660', '1394', '4963', '2475', '3499', '10738'],
       banknifty: ['1394', '4963', '17818', '2475', '317', '1901'],
@@ -1441,31 +1439,6 @@
       document.getElementById('viewTableBtn').classList.toggle('active', viewMode === 'table');
       document.getElementById('viewCardsBtn').classList.toggle('active', viewMode === 'cards');
     });
-
-    // ===== Demo Watchlist =====
-    async function loadDemoWatchlist() {
-      const existing = rowData.map(r => r.token);
-      const newTokens = DEMO_TOKENS.filter(t => !existing.includes(t));
-      if (newTokens.length === 0) {
-        showToast('All demo stocks already in watchlist', 'info');
-        return;
-      }
-
-      let added = 0;
-      for (const token of newTokens) {
-        try {
-          await fetch(`/api/tokens/add?token=${token}`, { method: 'POST' });
-          added++;
-        } catch (e) {}
-      }
-
-      if (added > 0) {
-        showToast(`Added ${added} demo stocks`, 'success');
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default', action: 'refresh' }));
-        }
-      }
-    }
 
     // ===== Quick Add Groups =====
     async function quickAddGroup(group) {
