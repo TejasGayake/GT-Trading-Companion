@@ -87,6 +87,17 @@ body {
   background: #1565c0;
 }
 
+.watchlist-select {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--header-bg);
+  color: var(--text-color);
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 36px;
+}
+
 .search-input {
   padding: 8px 12px;
   border: 1px solid var(--border-color);
@@ -225,6 +236,7 @@ body {
   flex: 1;
   overflow: hidden;
   display: none;
+  position: relative;
 }
 
 .sheet-view.active {
@@ -392,6 +404,33 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  gap: 12px;
+}
+
+.chart-tools {
+  display: flex;
+  gap: 4px;
+}
+
+.chart-tool-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--header-bg);
+  color: var(--text-color);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chart-tool-btn.active {
+  background: var(--info);
+  border-color: var(--info);
+  color: #fff;
+}
+
+.chart-tool-btn:hover {
+  background: var(--border-color);
 }
 
 .chart-close {
@@ -540,31 +579,209 @@ body {
   to { transform: translateX(0); opacity: 1; }
 }
 
-/* Responsive */
+/* Heat Map */
+.heatmap-container {
+  padding: 16px;
+  overflow: auto;
+  flex: 1;
+}
+
+.heatmap-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #888;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.heatmap-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.heatmap-row {
+  display: flex;
+  gap: 1px;
+  background: var(--header-bg);
+}
+
+.heatmap-header {
+  background: var(--toolbar-bg);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.heatmap-cell {
+  flex: 1;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 13px;
+  min-width: 80px;
+  transition: background 0.3s;
+}
+
+.heatmap-label {
+  flex: 1.5;
+  text-align: left;
+  font-weight: 500;
+  min-width: 100px;
+}
+
+/* Responsive - Mobile First */
+
+/* Bottom nav bar (hidden on desktop) */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--toolbar-bg);
+  border-top: 1px solid var(--border-color);
+  z-index: 100;
+  padding: 4px 0;
+  padding-bottom: env(safe-area-inset-bottom, 4px);
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: none;
+  border: none;
+  color: var(--text-color);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  flex: 1;
+  min-height: 48px;
+  justify-content: center;
+}
+
+.bottom-nav-item.active {
+  opacity: 1;
+  color: var(--info);
+}
+
+.bottom-nav-item svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Mobile: < 768px */
 @media (max-width: 768px) {
+  body {
+    overflow: hidden;
+  }
+
   .toolbar {
     flex-direction: column;
     align-items: stretch;
+    padding: 8px;
+    gap: 8px;
   }
 
   .toolbar-group {
     flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .toolbar-btn {
+    padding: 10px 14px;
+    font-size: 14px;
+    min-height: 44px;
   }
 
   .search-input {
     width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
   }
 
+  /* Hide desktop sheet tabs, show bottom nav */
   .sheet-tabs {
-    overflow-x: auto;
+    display: none;
   }
 
+  .bottom-nav {
+    display: flex;
+  }
+
+  /* Add padding for bottom nav */
   .status-bar {
+    padding-bottom: 60px;
     flex-wrap: wrap;
     gap: 8px;
   }
 
+  .main-content {
+    padding-bottom: 0;
+  }
+
+  /* Alerts: stack columns vertically */
   .alerts-columns {
     flex-direction: column;
+  }
+
+  .alert-column {
+    min-height: 200px;
+  }
+
+  /* Instruments: smaller chips */
+  .instrument-chip {
+    padding: 8px 10px;
+    font-size: 13px;
+    min-height: 44px;
+  }
+
+  /* Toast notifications at top */
+  .toast-container {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+  }
+
+  .toast {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+}
+
+/* Tablet: 768px - 1024px */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .toolbar {
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .toolbar-btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .sheet-tabs .sheet-tab {
+    padding: 8px 14px;
+    font-size: 13px;
   }
 }

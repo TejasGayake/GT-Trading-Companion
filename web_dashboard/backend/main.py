@@ -47,6 +47,24 @@ class Watchlist(BaseModel):
     tokens: List[str]
 
 
+class PortfolioHolding(BaseModel):
+    token: str
+    symbol: str
+    quantity: int
+    buy_price: float
+    buy_date: str = ""
+    notes: str = ""
+
+
+class PortfolioTrade(BaseModel):
+    token: str
+    symbol: str
+    quantity: int
+    price: float
+    type: str  # "BUY" or "SELL"
+    timestamp: str = ""
+
+
 class TokenData(BaseModel):
     token: str
     symbol: str
@@ -97,6 +115,8 @@ class DashboardState:
         self.last_update: float = 0
         self.running: bool = False
         self.yahoo_mapping: Dict[str, str] = {}
+        self.portfolio: List[dict] = []  # Portfolio holdings
+        self.trades: List[dict] = []     # Trade history
         self.refresh_event: asyncio.Event = asyncio.Event()
         self.start_time: float = time.time()
         self.storage = None
@@ -269,8 +289,47 @@ def _build_alert_categories() -> dict:
 
 
 # ===============================
-# Data Polling Loop
+# Adaptive Polling
 # ===============================
+
+def is_market_open() -> bool:
+    """Check if NSE market is open (9:15 AM - 3:30 PM, Mon-Fri IST)"""
+    from datetime import timezone, timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(ist)
+    if now.weekday() >= 5:  # Weekend
+        return False
+    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return market_open <= now <= market_close
+
+
+def get_adaptive_interval() -> float:
+    """Calculate poll interval based on market hours and volatility"""
+    if not is_market_open():
+        return 30.0  # Slow polling when market closed
+
+    # Calculate volatility from recent price changes
+    changes = []
+    for data in state.token_data_cache.values():
+        change_pct = data.get("change_percent", 0)
+        if change_pct is not None:
+            changes.append(abs(change_pct))
+
+    if not changes:
+        return config.POLL_INTERVAL
+
+    avg_change = sum(changes) / len(changes)
+
+    if avg_change > 2.0:    # High volatility
+        return 2.0
+    elif avg_change > 1.0:  # Medium volatility
+        return 3.0
+    elif avg_change > 0.5:  # Low volatility
+        return 5.0
+    else:                   # Very quiet
+        return 10.0
+
 
 async def poll_data():
     """Background task to poll data and broadcast"""
@@ -381,10 +440,11 @@ async def poll_data():
                 "alert_categories": _build_alert_categories()
             })
 
-            # Wait for refresh signal or timeout (configurable interval)
+            # Wait for refresh signal or timeout (adaptive interval)
+            interval = get_adaptive_interval()
             state.refresh_event.clear()
             try:
-                await asyncio.wait_for(state.refresh_event.wait(), timeout=config.POLL_INTERVAL)
+                await asyncio.wait_for(state.refresh_event.wait(), timeout=interval)
             except asyncio.TimeoutError:
                 pass  # Normal timeout, continue polling
 
@@ -422,6 +482,9 @@ async def lifespan(app: FastAPI):
     await state.load_watchlist()
     if not state.watchlists.get("Default"):
         state.watchlists["Default"] = []  # Start empty - user adds stocks
+
+    # Load portfolio
+    _load_portfolio()
 
     # Start polling
     state.running = True
@@ -596,6 +659,20 @@ async def save_watchlist(watchlist: Watchlist):
     return {"success": True, "name": watchlist.name}
 
 
+@app.delete("/api/watchlists/{name}")
+async def delete_watchlist(name: str):
+    """Delete a watchlist (cannot delete Default)"""
+    if name == "Default":
+        raise HTTPException(status_code=400, detail="Cannot delete Default watchlist")
+    if name in state.watchlists:
+        del state.watchlists[name]
+    # Remove from all user watchlists
+    for user_wl in state.user_watchlists.values():
+        user_wl.pop(name, None)
+    await state.save_watchlist()
+    return {"success": True, "deleted": name}
+
+
 @app.post("/api/tokens/add")
 async def add_token(token: str, watchlist: str = "Default", user_id: str = Query("local")):
     """Add token to watchlist and trigger immediate data fetch"""
@@ -715,6 +792,143 @@ async def clear_alerts():
             alert["status"] = "resolved"
             alert["resolved_at"] = datetime.now().isoformat()
     return {"success": True}
+
+
+# ===============================
+# Portfolio API
+# ===============================
+
+@app.get("/api/portfolio")
+async def get_portfolio():
+    """Get portfolio holdings with current prices and P&L"""
+    result = []
+    for holding in state.portfolio:
+        token = holding.get("token", "")
+        current_data = state.token_data_cache.get(token, {})
+        current_price = current_data.get("ltp", holding.get("buy_price", 0))
+        quantity = holding.get("quantity", 0)
+        buy_price = holding.get("buy_price", 0)
+        current_value = quantity * current_price
+        invested_value = quantity * buy_price
+        pnl = current_value - invested_value
+        pnl_percent = ((current_price - buy_price) / buy_price * 100) if buy_price > 0 else 0
+
+        result.append({
+            **holding,
+            "current_price": current_price,
+            "current_value": round(current_value, 2),
+            "invested_value": round(invested_value, 2),
+            "pnl": round(pnl, 2),
+            "pnl_percent": round(pnl_percent, 2),
+            "symbol": current_data.get("symbol", holding.get("symbol", ""))
+        })
+
+    total_invested = sum(h["invested_value"] for h in result)
+    total_current = sum(h["current_value"] for h in result)
+    total_pnl = total_current - total_invested
+
+    return {
+        "holdings": result,
+        "summary": {
+            "total_invested": round(total_invested, 2),
+            "total_current": round(total_current, 2),
+            "total_pnl": round(total_pnl, 2),
+            "total_pnl_percent": round((total_pnl / total_invested * 100) if total_invested > 0 else 0, 2),
+            "holdings_count": len(result)
+        }
+    }
+
+
+@app.post("/api/portfolio")
+async def add_holding(holding: PortfolioHolding):
+    """Add a portfolio holding"""
+    # Check if token already exists, update if so
+    for i, h in enumerate(state.portfolio):
+        if h.get("token") == holding.token:
+            # Average buy price calculation
+            old_qty = h.get("quantity", 0)
+            old_price = h.get("buy_price", 0)
+            new_qty = holding.quantity
+            new_price = holding.buy_price
+            total_qty = old_qty + new_qty
+            if total_qty > 0:
+                avg_price = (old_qty * old_price + new_qty * new_price) / total_qty
+            else:
+                avg_price = new_price
+            state.portfolio[i]["quantity"] = total_qty
+            state.portfolio[i]["buy_price"] = round(avg_price, 2)
+            break
+    else:
+        state.portfolio.append(holding.dict())
+
+    # Log trade
+    state.trades.append({
+        **holding.dict(),
+        "type": "BUY",
+        "timestamp": datetime.now().isoformat()
+    })
+
+    # Save to file
+    _save_portfolio()
+    return {"success": True, "holdings": len(state.portfolio)}
+
+
+@app.delete("/api/portfolio/{token}")
+async def remove_holding(token: str, quantity: int = Query(0)):
+    """Remove a holding (partial or full)"""
+    for i, h in enumerate(state.portfolio):
+        if h.get("token") == token:
+            if quantity <= 0 or quantity >= h.get("quantity", 0):
+                # Remove completely
+                removed = state.portfolio.pop(i)
+                state.trades.append({
+                    **removed,
+                    "type": "SELL",
+                    "quantity": removed.get("quantity", 0),
+                    "timestamp": datetime.now().isoformat()
+                })
+            else:
+                # Partial sell
+                state.portfolio[i]["quantity"] -= quantity
+                state.trades.append({
+                    **h,
+                    "type": "SELL",
+                    "quantity": quantity,
+                    "timestamp": datetime.now().isoformat()
+                })
+            break
+    _save_portfolio()
+    return {"success": True}
+
+
+@app.get("/api/portfolio/trades")
+async def get_trades(limit: int = Query(50)):
+    """Get trade history"""
+    return {"trades": state.trades[-limit:]}
+
+
+def _save_portfolio():
+    """Save portfolio to local file"""
+    try:
+        portfolio_path = os.path.join(project_root, "..", "web_dashboard", "backend", "portfolio.json")
+        with open(portfolio_path, 'w') as f:
+            json.dump({"holdings": state.portfolio, "trades": state.trades}, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving portfolio: {e}")
+
+
+def _load_portfolio():
+    """Load portfolio from local file"""
+    try:
+        portfolio_path = os.path.join(project_root, "..", "web_dashboard", "backend", "portfolio.json")
+        if os.path.exists(portfolio_path):
+            with open(portfolio_path, 'r') as f:
+                data = json.load(f)
+                state.portfolio = data.get("holdings", [])
+                state.trades = data.get("trades", [])
+                logger.info(f"Loaded portfolio: {len(state.portfolio)} holdings")
+    except Exception as e:
+        logger.error(f"Error loading portfolio: {e}")
 
 
 if __name__ == "__main__":

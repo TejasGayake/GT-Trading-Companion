@@ -48,6 +48,15 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [instruments, setInstruments] = useState([]);
+  const [watchlists, setWatchlists] = useState({ 'Default': [] });
+  const [currentWatchlist, setCurrentWatchlist] = useState('Default');
+  const [showNewWatchlist, setShowNewWatchlist] = useState(false);
+  const [newWatchlistName, setNewWatchlistName] = useState('');
+  const [portfolio, setPortfolio] = useState([]);
+  const [portfolioSummary, setPortfolioSummary] = useState({ total_invested: 0, total_current: 0, total_pnl: 0, total_pnl_percent: 0 });
+  const [showAddHolding, setShowAddHolding] = useState(false);
+  const [newHolding, setNewHolding] = useState({ token: '', symbol: '', quantity: '', buy_price: '' });
+  const [trades, setTrades] = useState([]);
 
   // Symbol search state
   const [symbolSearchText, setSymbolSearchText] = useState('');
@@ -142,6 +151,8 @@ function App() {
   useEffect(() => {
     connectWebSocket();
     fetchInstruments();
+    fetchPortfolio();
+    fetchTrades();
 
     return () => {
       if (ws) {
@@ -160,7 +171,7 @@ function App() {
     if (showChart && chartData.length > 0) {
       renderChart();
     }
-  }, [chartData, showChart]);
+  }, [chartData, showChart, chartOverlays, customLines]);
 
   const connectWebSocket = () => {
     const userId = getUserId();
@@ -186,6 +197,14 @@ function App() {
 
       switch (message.type) {
         case 'init':
+          if (message.watchlists) {
+            setWatchlists(message.watchlists);
+            const names = Object.keys(message.watchlists);
+            if (names.length > 0 && !names.includes(currentWatchlist)) {
+              setCurrentWatchlist(names[0]);
+            }
+          }
+          // fall through to update
         case 'update':
           setRowData(message.data);
           setLastUpdate(new Date());
@@ -212,6 +231,60 @@ function App() {
       setInstruments(data.instruments || []);
     } catch (e) {
       console.error('Failed to load instruments:', e);
+    }
+  };
+
+  // Portfolio functions
+  const fetchPortfolio = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/portfolio`);
+      const data = await response.json();
+      setPortfolio(data.holdings || []);
+      setPortfolioSummary(data.summary || {});
+    } catch (e) {
+      console.error('Failed to load portfolio:', e);
+    }
+  };
+
+  const fetchTrades = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/portfolio/trades?limit=100`);
+      const data = await response.json();
+      setTrades(data.trades || []);
+    } catch (e) {
+      console.error('Failed to load trades:', e);
+    }
+  };
+
+  const handleAddHolding = async () => {
+    if (!newHolding.token || !newHolding.quantity || !newHolding.buy_price) return;
+    try {
+      await fetch(`${getApiUrl()}/api/portfolio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: newHolding.token,
+          symbol: newHolding.symbol || newHolding.token,
+          quantity: parseInt(newHolding.quantity),
+          buy_price: parseFloat(newHolding.buy_price)
+        })
+      });
+      setShowAddHolding(false);
+      setNewHolding({ token: '', symbol: '', quantity: '', buy_price: '' });
+      fetchPortfolio();
+      addToast('Added to portfolio', 'success');
+    } catch (e) {
+      addToast('Failed to add holding', 'error');
+    }
+  };
+
+  const handleRemoveHolding = async (token) => {
+    try {
+      await fetch(`${getApiUrl()}/api/portfolio/${token}`, { method: 'DELETE' });
+      fetchPortfolio();
+      addToast('Removed from portfolio', 'success');
+    } catch (e) {
+      addToast('Failed to remove holding', 'error');
     }
   };
 
@@ -271,6 +344,22 @@ function App() {
     }
   };
 
+  // Drawing tool state
+  const [chartOverlays, setChartOverlays] = useState({ camarilla: true, supertrend: true, vwap: false });
+  const [customLines, setCustomLines] = useState([]);
+  const [customLinePrice, setCustomLinePrice] = useState('');
+  const seriesRef = useRef(null);
+
+  // Toggle overlay
+  const toggleOverlay = (key) => {
+    setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Add custom horizontal line
+  const addCustomLine = (price, color = '#2196f3', title = '') => {
+    setCustomLines(prev => [...prev, { price, color, title }]);
+  };
+
   // Render chart
   const renderChart = () => {
     if (!chartContainerRef.current) return;
@@ -302,6 +391,67 @@ function App() {
     });
 
     candlestickSeries.setData(chartData);
+    seriesRef.current = candlestickSeries;
+
+    // Add indicator overlays
+    const tokenData = rowData.find(r => r.token === chartToken);
+    if (tokenData) {
+      if (chartOverlays.camarilla) {
+        if (tokenData.Camarilla_H4) {
+          candlestickSeries.createPriceLine({
+            price: tokenData.Camarilla_H4,
+            color: '#f44336',
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: 'H4',
+          });
+        }
+        if (tokenData.Camarilla_L4) {
+          candlestickSeries.createPriceLine({
+            price: tokenData.Camarilla_L4,
+            color: '#4caf50',
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: 'L4',
+          });
+        }
+      }
+      if (chartOverlays.supertrend && tokenData.supertrend) {
+        candlestickSeries.createPriceLine({
+          price: tokenData.supertrend,
+          color: '#ff9800',
+          lineWidth: 1,
+          lineStyle: 0,
+          axisLabelVisible: true,
+          title: 'ST',
+        });
+      }
+      if (chartOverlays.vwap && tokenData.vwap) {
+        candlestickSeries.createPriceLine({
+          price: tokenData.vwap,
+          color: '#9c27b0',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: 'VWAP',
+        });
+      }
+    }
+
+    // Add custom lines
+    customLines.forEach(line => {
+      candlestickSeries.createPriceLine({
+        price: line.price,
+        color: line.color,
+        lineWidth: 1,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: line.title || `₹${line.price}`,
+      });
+    });
+
     chart.timeScale().fitContent();
     chartRef.current = chart;
   };
@@ -338,15 +488,24 @@ function App() {
   const handleAddToken = async (token, symbol) => {
     try {
       const userId = getUserId();
-      await fetch(`${getApiUrl()}/api/tokens/add?token=${token}&user_id=${userId}`, { method: 'POST' });
-      addToast(`Added ${symbol}`, 'success');
+      await fetch(`${getApiUrl()}/api/tokens/add?token=${token}&watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, { method: 'POST' });
+      addToast(`Added ${symbol} to ${currentWatchlist}`, 'success');
       setShowAddToken(false);
       setSymbolSearchText('');
       setSymbolResults([]);
 
+      // Update local watchlist state
+      setWatchlists(prev => {
+        const wl = prev[currentWatchlist] || [];
+        if (!wl.includes(token)) {
+          return { ...prev, [currentWatchlist]: [...wl, token] };
+        }
+        return prev;
+      });
+
       // Trigger refresh via WebSocket
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default', action: 'refresh' }));
+        ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
       }
     } catch (e) {
       addToast('Failed to add token', 'error');
@@ -357,8 +516,14 @@ function App() {
   const handleRemoveToken = async (token) => {
     try {
       const userId = getUserId();
-      await fetch(`${getApiUrl()}/api/tokens/${token}?user_id=${userId}`, { method: 'DELETE' });
-      addToast(`Removed token ${token}`, 'success');
+      await fetch(`${getApiUrl()}/api/tokens/${token}?watchlist=${encodeURIComponent(currentWatchlist)}&user_id=${userId}`, { method: 'DELETE' });
+      addToast(`Removed ${token} from ${currentWatchlist}`, 'success');
+
+      // Update local watchlist state
+      setWatchlists(prev => {
+        const wl = prev[currentWatchlist] || [];
+        return { ...prev, [currentWatchlist]: wl.filter(t => t !== token) };
+      });
     } catch (e) {
       addToast('Failed to remove token', 'error');
     }
@@ -378,8 +543,56 @@ function App() {
   // Refresh data
   const handleRefresh = () => {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'subscribe', watchlist: 'Default', action: 'refresh' }));
+      ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
       addToast('Refreshing data...', 'success');
+    }
+  };
+
+  // Switch watchlist
+  const handleSwitchWatchlist = (name) => {
+    setCurrentWatchlist(name);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'subscribe', watchlist: name, action: 'refresh' }));
+    }
+    addToast(`Switched to ${name}`, 'success');
+  };
+
+  // Create new watchlist
+  const handleCreateWatchlist = async () => {
+    const name = newWatchlistName.trim();
+    if (!name) return;
+    try {
+      await fetch(`${getApiUrl()}/api/watchlists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, tokens: [] })
+      });
+      setWatchlists(prev => ({ ...prev, [name]: [] }));
+      setCurrentWatchlist(name);
+      setNewWatchlistName('');
+      setShowNewWatchlist(false);
+      addToast(`Created watchlist "${name}"`, 'success');
+    } catch (e) {
+      addToast('Failed to create watchlist', 'error');
+    }
+  };
+
+  // Delete watchlist
+  const handleDeleteWatchlist = async (name) => {
+    if (name === 'Default') return; // Can't delete Default
+    try {
+      await fetch(`${getApiUrl()}/api/watchlists/${name}`, { method: 'DELETE' });
+      setWatchlists(prev => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+      if (currentWatchlist === name) {
+        setCurrentWatchlist('Default');
+      }
+      addToast(`Deleted watchlist "${name}"`, 'success');
+    } catch (e) {
+      addToast('Failed to delete watchlist', 'error');
     }
   };
 
@@ -440,6 +653,26 @@ function App() {
         </div>
 
         <div className="toolbar-group">
+          <select
+            className="watchlist-select"
+            value={currentWatchlist}
+            onChange={(e) => handleSwitchWatchlist(e.target.value)}
+          >
+            {Object.keys(watchlists).map(name => (
+              <option key={name} value={name}>{name} ({watchlists[name]?.length || 0})</option>
+            ))}
+          </select>
+          <button className="toolbar-btn" onClick={() => setShowNewWatchlist(true)} title="New watchlist">
+            <Plus size={16} />
+          </button>
+          {currentWatchlist !== 'Default' && (
+            <button className="toolbar-btn" onClick={() => handleDeleteWatchlist(currentWatchlist)} title="Delete watchlist">
+              <Trash size={16} />
+            </button>
+          )}
+        </div>
+
+        <div className="toolbar-group">
           <Search size={16} />
           <input
             type="text"
@@ -488,6 +721,18 @@ function App() {
           onClick={() => setActiveSheet('historical')}
         >
           Historical
+        </button>
+        <button
+          className={`sheet-tab ${activeSheet === 'heatmap' ? 'active' : ''}`}
+          onClick={() => setActiveSheet('heatmap')}
+        >
+          Heat Map
+        </button>
+        <button
+          className={`sheet-tab ${activeSheet === 'portfolio' ? 'active' : ''}`}
+          onClick={() => setActiveSheet('portfolio')}
+        >
+          Portfolio
         </button>
       </div>
 
@@ -641,6 +886,198 @@ function App() {
             </p>
           </div>
         </div>
+
+        {/* Heat Map Sheet */}
+        <div className={`sheet-view ${activeSheet === 'heatmap' ? 'active' : ''}`}>
+          <div className="heatmap-container">
+            <h3 style={{ marginBottom: '16px' }}>Indicator Heat Map</h3>
+            <div className="heatmap-legend">
+              <span className="legend-item"><span className="legend-color" style={{ background: '#4caf50' }}></span> Oversold / Low</span>
+              <span className="legend-item"><span className="legend-color" style={{ background: '#fff' }}></span> Neutral</span>
+              <span className="legend-item"><span className="legend-color" style={{ background: '#f44336' }}></span> Overbought / High</span>
+            </div>
+            <div className="heatmap-grid">
+              {/* Header row */}
+              <div className="heatmap-row heatmap-header">
+                <div className="heatmap-cell heatmap-label">Stock</div>
+                <div className="heatmap-cell">RSI</div>
+                <div className="heatmap-cell">LTP</div>
+                <div className="heatmap-cell">Change%</div>
+                <div className="heatmap-cell">Vol/SMA8</div>
+                <div className="heatmap-cell">Supertrend</div>
+              </div>
+              {/* Data rows */}
+              {rowData.map(item => {
+                const rsi = item.rsi14 || 50;
+                const change = item.change_percent || 0;
+                const volRatio = item.volume_sma8 ? (item.volume / item.volume_sma8) : 1;
+
+                const rsiColor = rsi > 70 ? `rgba(244,67,54,${(rsi - 70) / 30})` :
+                                 rsi < 30 ? `rgba(76,175,80,${(30 - rsi) / 30})` :
+                                 'transparent';
+                const changeColor = change > 0 ? `rgba(76,175,80,${Math.min(Math.abs(change) / 5, 1)})` :
+                                    change < 0 ? `rgba(244,67,54,${Math.min(Math.abs(change) / 5, 1)})` :
+                                    'transparent';
+                const volColor = volRatio > 2 ? `rgba(255,152,0,${Math.min((volRatio - 1) / 4, 1)})` :
+                                 'transparent';
+                const stColor = item.supertrend_signal === 'BUY' ? 'rgba(76,175,80,0.3)' :
+                                item.supertrend_signal === 'SELL' ? 'rgba(244,67,54,0.3)' :
+                                'transparent';
+
+                return (
+                  <div key={item.token} className="heatmap-row">
+                    <div className="heatmap-cell heatmap-label">{item.symbol}</div>
+                    <div className="heatmap-cell" style={{ background: rsiColor }}>{rsi.toFixed(0)}</div>
+                    <div className="heatmap-cell">₹{item.ltp?.toFixed(2)}</div>
+                    <div className="heatmap-cell" style={{ background: changeColor }}>{change > 0 ? '+' : ''}{change.toFixed(2)}%</div>
+                    <div className="heatmap-cell" style={{ background: volColor }}>{volRatio.toFixed(1)}x</div>
+                    <div className="heatmap-cell" style={{ background: stColor }}>{item.supertrend_signal || '-'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Portfolio Sheet */}
+        <div className={`sheet-view ${activeSheet === 'portfolio' ? 'active' : ''}`}>
+          <div className="portfolio-container">
+            {/* Summary Cards */}
+            <div className="portfolio-summary">
+              <div className="summary-card">
+                <div className="summary-label">Invested</div>
+                <div className="summary-value">₹{portfolioSummary.total_invested?.toLocaleString()}</div>
+              </div>
+              <div className="summary-card">
+                <div className="summary-label">Current</div>
+                <div className="summary-value">₹{portfolioSummary.total_current?.toLocaleString()}</div>
+              </div>
+              <div className="summary-card">
+                <div className="summary-label">P&L</div>
+                <div className={`summary-value ${portfolioSummary.total_pnl >= 0 ? 'profit' : 'loss'}`}>
+                  {portfolioSummary.total_pnl >= 0 ? '+' : ''}₹{portfolioSummary.total_pnl?.toLocaleString()}
+                </div>
+              </div>
+              <div className="summary-card">
+                <div className="summary-label">Returns</div>
+                <div className={`summary-value ${portfolioSummary.total_pnl_percent >= 0 ? 'profit' : 'loss'}`}>
+                  {portfolioSummary.total_pnl_percent >= 0 ? '+' : ''}{portfolioSummary.total_pnl_percent?.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+
+            {/* Add Holding Button */}
+            <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
+              <button className="toolbar-btn primary" onClick={() => setShowAddHolding(true)}>
+                <Plus size={16} /> Add Holding
+              </button>
+              <button className="toolbar-btn" onClick={() => { fetchTrades(); }}>
+                <RefreshCw size={16} /> Refresh Trades
+              </button>
+            </div>
+
+            {/* Holdings Table */}
+            <div className="portfolio-table-container">
+              <table className="portfolio-table">
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Qty</th>
+                    <th>Avg Price</th>
+                    <th>LTP</th>
+                    <th>Current Value</th>
+                    <th>P&L</th>
+                    <th>P&L %</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {portfolio.length === 0 ? (
+                    <tr><td colSpan="8" style={{ textAlign: 'center', color: '#888' }}>No holdings yet. Add your first stock!</td></tr>
+                  ) : (
+                    portfolio.map(h => (
+                      <tr key={h.token}>
+                        <td className="symbol-cell">{h.symbol}</td>
+                        <td>{h.quantity}</td>
+                        <td>₹{h.buy_price?.toFixed(2)}</td>
+                        <td>₹{h.current_price?.toFixed(2)}</td>
+                        <td>₹{h.current_value?.toLocaleString()}</td>
+                        <td className={h.pnl >= 0 ? 'profit' : 'loss'}>
+                          {h.pnl >= 0 ? '+' : ''}₹{h.pnl?.toLocaleString()}
+                        </td>
+                        <td className={h.pnl_percent >= 0 ? 'profit' : 'loss'}>
+                          {h.pnl_percent >= 0 ? '+' : ''}{h.pnl_percent?.toFixed(2)}%
+                        </td>
+                        <td>
+                          <button className="remove-btn" onClick={() => handleRemoveHolding(h.token)}>Sell</button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Trade History */}
+            <h3 style={{ margin: '24px 0 12px', color: 'var(--text-color)' }}>Trade History</h3>
+            <div className="portfolio-table-container">
+              <table className="portfolio-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Symbol</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>Value</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trades.length === 0 ? (
+                    <tr><td colSpan="6" style={{ textAlign: 'center', color: '#888' }}>No trades yet</td></tr>
+                  ) : (
+                    trades.slice().reverse().map((t, idx) => (
+                      <tr key={idx}>
+                        <td>
+                          <span className={t.type === 'BUY' ? 'profit' : 'loss'} style={{ fontWeight: 600 }}>
+                            {t.type}
+                          </span>
+                        </td>
+                        <td>{t.symbol || t.token}</td>
+                        <td>{t.quantity}</td>
+                        <td>₹{t.price?.toFixed(2)}</td>
+                        <td>₹{(t.quantity * t.price)?.toLocaleString()}</td>
+                        <td style={{ fontSize: '11px', color: '#888' }}>
+                          {t.timestamp ? new Date(t.timestamp).toLocaleString() : '-'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Navigation (mobile only) */}
+      <div className="bottom-nav">
+        <button className={`bottom-nav-item ${activeSheet === 'live' ? 'active' : ''}`} onClick={() => setActiveSheet('live')}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+          Live
+        </button>
+        <button className={`bottom-nav-item ${activeSheet === 'instruments' ? 'active' : ''}`} onClick={() => setActiveSheet('instruments')}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          Stocks
+        </button>
+        <button className={`bottom-nav-item ${activeSheet === 'alerts' ? 'active' : ''}`} onClick={() => setActiveSheet('alerts')}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Alerts
+        </button>
+        <button className={`bottom-nav-item ${activeSheet === 'historical' ? 'active' : ''}`} onClick={() => setActiveSheet('historical')}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Charts
+        </button>
       </div>
 
       {/* Status Bar */}
@@ -732,12 +1169,138 @@ function App() {
         </div>
       )}
 
+      {/* New Watchlist Modal */}
+      {showNewWatchlist && (
+        <div className="modal-overlay" onClick={() => setShowNewWatchlist(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h3 className="modal-title">Create New Watchlist</h3>
+            <input
+              type="text"
+              className="modal-input"
+              placeholder="Watchlist name (e.g., NIFTY50, BANKNIFTY)"
+              value={newWatchlistName}
+              onChange={e => setNewWatchlistName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleCreateWatchlist()}
+              autoFocus
+            />
+            <div className="modal-actions">
+              <button className="toolbar-btn primary" onClick={handleCreateWatchlist}>Create</button>
+              <button className="toolbar-btn" onClick={() => { setShowNewWatchlist(false); setNewWatchlistName(''); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Holding Modal */}
+      {showAddHolding && (
+        <div className="modal-overlay" onClick={() => setShowAddHolding(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h3 className="modal-title">Add to Portfolio</h3>
+            <div className="modal-form">
+              <div className="form-group">
+                <label>Token</label>
+                <input
+                  type="text"
+                  className="modal-input"
+                  placeholder="e.g., 2885"
+                  value={newHolding.token}
+                  onChange={e => setNewHolding({ ...newHolding, token: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Symbol</label>
+                <input
+                  type="text"
+                  className="modal-input"
+                  placeholder="e.g., RELIANCE"
+                  value={newHolding.symbol}
+                  onChange={e => setNewHolding({ ...newHolding, symbol: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Quantity</label>
+                <input
+                  type="number"
+                  className="modal-input"
+                  placeholder="e.g., 10"
+                  value={newHolding.quantity}
+                  onChange={e => setNewHolding({ ...newHolding, quantity: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Buy Price (₹)</label>
+                <input
+                  type="number"
+                  className="modal-input"
+                  placeholder="e.g., 2500.50"
+                  value={newHolding.buy_price}
+                  onChange={e => setNewHolding({ ...newHolding, buy_price: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="toolbar-btn primary" onClick={handleAddHolding}>Add</button>
+              <button className="toolbar-btn" onClick={() => setShowAddHolding(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Chart Modal */}
       {showChart && (
         <div className="chart-modal">
           <div className="chart-content">
             <div className="chart-header">
               <h3>{chartToken} - Candlestick Chart</h3>
+              <div className="chart-tools">
+                <button
+                  className={`chart-tool-btn ${chartOverlays.camarilla ? 'active' : ''}`}
+                  onClick={() => toggleOverlay('camarilla')}
+                  title="Toggle Camarilla H4/L4"
+                >H4/L4</button>
+                <button
+                  className={`chart-tool-btn ${chartOverlays.supertrend ? 'active' : ''}`}
+                  onClick={() => toggleOverlay('supertrend')}
+                  title="Toggle Supertrend"
+                >ST</button>
+                <button
+                  className={`chart-tool-btn ${chartOverlays.vwap ? 'active' : ''}`}
+                  onClick={() => toggleOverlay('vwap')}
+                  title="Toggle VWAP"
+                >VWAP</button>
+                <span style={{ borderLeft: '1px solid #555', margin: '0 4px', height: '20px' }}></span>
+                <input
+                  type="number"
+                  className="chart-line-input"
+                  placeholder="Price..."
+                  value={customLinePrice}
+                  onChange={e => setCustomLinePrice(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customLinePrice && !isNaN(parseFloat(customLinePrice))) {
+                      addCustomLine(parseFloat(customLinePrice), '#2196f3', '');
+                      setCustomLinePrice('');
+                    }
+                  }}
+                  style={{ width: '80px', padding: '4px 6px', fontSize: '12px', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px' }}
+                />
+                <button
+                  className="chart-tool-btn"
+                  onClick={() => {
+                    if (customLinePrice && !isNaN(parseFloat(customLinePrice))) {
+                      addCustomLine(parseFloat(customLinePrice), '#2196f3', '');
+                      setCustomLinePrice('');
+                    }
+                  }}
+                  title="Add horizontal line at price"
+                >+Line</button>
+                {customLines.length > 0 && (
+                  <button
+                    className="chart-tool-btn"
+                    onClick={() => setCustomLines([])}
+                    title="Clear all custom lines"
+                  >Clear</button>
+                )}
+              </div>
               <button className="chart-close" onClick={closeChart}>
                 <X size={24} />
               </button>
