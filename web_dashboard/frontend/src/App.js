@@ -8,6 +8,26 @@ import TokenSearch from './TokenSearch';
 import QuickAddGroups from './QuickAddGroups';
 import WatchlistCards from './WatchlistCards';
 
+// Performance badge cell renderer
+const ChangeCellRenderer = (params) => {
+  const v = params.value;
+  if (v == null) return <span>-</span>;
+  const pct = `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
+  let badgeClass = 'badge ';
+  let label = 'Flat';
+  if (v > 3) { badgeClass += 'strong-bullish'; label = 'Strong'; }
+  else if (v > 1) { badgeClass += 'bullish'; label = 'Up'; }
+  else if (v < -3) { badgeClass += 'strong-bearish'; label = 'Strong'; }
+  else if (v < -1) { badgeClass += 'bearish'; label = 'Down'; }
+  else { badgeClass += 'neutral'; }
+  return (
+    <span>
+      <span>{pct}</span>{' '}
+      <span className={badgeClass}>{label}</span>
+    </span>
+  );
+};
+
 // Cloud-ready configuration
 const getApiUrl = () => {
   if (process.env.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
@@ -133,24 +153,7 @@ function App() {
     { headerName: 'LOW', field: 'low', width: 90, cellRenderer: p => formatPrice(p.value) },
     { headerName: 'PREV CLOSE', field: 'prev_close', width: 100, cellRenderer: p => formatPrice(p.value) },
     { headerName: 'CHANGE', field: 'change', width: 100, cellRenderer: p => formatChange(p.value), cellClass: getPriceClass },
-    { headerName: '%CHANGE', field: 'change_percent', width: 130, cellRenderer: p => {
-      const v = p.value;
-      if (v == null) return document.createTextNode('-');
-      const container = document.createElement('span');
-      const pctSpan = document.createElement('span');
-      pctSpan.textContent = `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
-      container.appendChild(pctSpan);
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      if (v > 3) { badge.classList.add('strong-bullish'); badge.textContent = 'Strong'; }
-      else if (v > 1) { badge.classList.add('bullish'); badge.textContent = 'Up'; }
-      else if (v < -3) { badge.classList.add('strong-bearish'); badge.textContent = 'Strong'; }
-      else if (v < -1) { badge.classList.add('bearish'); badge.textContent = 'Down'; }
-      else { badge.classList.add('neutral'); badge.textContent = 'Flat'; }
-      container.appendChild(document.createTextNode(' '));
-      container.appendChild(badge);
-      return container;
-    }, cellClass: getPercentClass },
+    { headerName: '%CHANGE', field: 'change_percent', width: 130, cellRenderer: ChangeCellRenderer, cellClass: getPercentClass },
     { headerName: 'VOLUME', field: 'volume', width: 120, cellRenderer: p => formatVolume(p.value) },
     { headerName: 'AVG VOL', field: 'avg_volume', width: 100, cellRenderer: p => formatVolume(p.value) },
     { headerName: 'SMA8', field: 'sma8', width: 80, cellRenderer: p => formatVolume(p.value) },
