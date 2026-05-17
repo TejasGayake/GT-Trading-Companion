@@ -38,6 +38,7 @@ function App() {
   const [alerts, setAlerts] = useState([]);
   const [alertCategories, setAlertCategories] = useState({ camarilla: [], volume_spike: [], volume_sma8: [] });
   const [connected, setConnected] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [searchText, setSearchText] = useState('');
   const [showAddToken, setShowAddToken] = useState(false);
@@ -173,6 +174,54 @@ function App() {
     document.body.className = theme === 'light' ? 'light-theme' : '';
   }, [theme]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger shortcuts when typing in inputs
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      // Ctrl+A: Add token modal
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        setShowAddToken(true);
+      }
+      // Ctrl+F: Focus search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        document.querySelector('.search-input')?.focus();
+      }
+      // Ctrl+E: Export CSV
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault();
+        exportToCSV();
+      }
+      // Ctrl+D: Toggle theme
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        setTheme(t => t === 'dark' ? 'light' : 'dark');
+      }
+      // F5: Refresh data
+      if (e.key === 'F5') {
+        e.preventDefault();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
+        }
+      }
+      // Escape: Close modals
+      if (e.key === 'Escape') {
+        setShowAddToken(false);
+        setShowRemoveToken(false);
+        setShowChart(false);
+        setShowPortfolio(false);
+        setShowHeatmap(false);
+        setShowCreateWatchlist(false);
+        setShowAddHolding(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [ws, currentWatchlist, theme]);
+
   // Update chart when data changes
   useEffect(() => {
     if (showChart && chartData.length > 0) {
@@ -215,6 +264,7 @@ function App() {
         case 'update':
           setRowData(message.data);
           setLastUpdate(new Date());
+          setDataLoading(false);
           if (message.alert_categories) {
             setAlertCategories(message.alert_categories);
           }
@@ -807,7 +857,18 @@ function App() {
         {/* Live Data Sheet */}
         <div className={`sheet-view ${activeSheet === 'live' ? 'active' : ''}`}>
           <div className="ag-theme-alpine-dark grid-container">
-            <AgGridReact
+            {dataLoading && (
+              <div className="skeleton-container">
+                {Array(8).fill().map((_, i) => (
+                  <div key={i} className="skeleton-row">
+                    {Array(10).fill().map((_, j) => (
+                      <div key={j} className="skeleton-cell" style={{ animationDelay: `${(i * 10 + j) * 0.03}s` }}></div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!dataLoading && <AgGridReact
               ref={gridRef}
               rowData={rowData}
               columnDefs={columnDefs}
@@ -818,7 +879,7 @@ function App() {
               animateRows={true}
               getRowId={(params) => params.data.token}
               suppressCellFocus={true}
-            />
+            />}
           </div>
         </div>
 
