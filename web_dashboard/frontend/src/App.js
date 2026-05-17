@@ -58,6 +58,12 @@ function App() {
   const [newHolding, setNewHolding] = useState({ token: '', symbol: '', quantity: '', buy_price: '' });
   const [trades, setTrades] = useState([]);
 
+  // Drawing tool state
+  const [chartOverlays, setChartOverlays] = useState({ camarilla: true, supertrend: true, vwap: false });
+  const [customLines, setCustomLines] = useState([]);
+  const [customLinePrice, setCustomLinePrice] = useState('');
+  const seriesRef = useRef(null);
+
   // Symbol search state
   const [symbolSearchText, setSymbolSearchText] = useState('');
   const [symbolResults, setSymbolResults] = useState([]);
@@ -343,12 +349,6 @@ function App() {
       addToast('Failed to load chart data', 'error');
     }
   };
-
-  // Drawing tool state
-  const [chartOverlays, setChartOverlays] = useState({ camarilla: true, supertrend: true, vwap: false });
-  const [customLines, setCustomLines] = useState([]);
-  const [customLinePrice, setCustomLinePrice] = useState('');
-  const seriesRef = useRef(null);
 
   // Toggle overlay
   const toggleOverlay = (key) => {
