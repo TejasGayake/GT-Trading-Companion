@@ -358,7 +358,7 @@ e9f4d17 Initial commit
 
 ## Improvements Roadmap (as of 2026-05-17)
 
-**Completed (10/12):**
+**Completed (14/14 from improvements + extras):**
 - Adaptive polling (market hours detection, volatility-based intervals)
 - Alert deduplication (5-min cooldown per token per alert type)
 - CSV export (AG Grid built-in export)
@@ -369,12 +369,16 @@ e9f4d17 Initial commit
 - Virtual scrolling (AG Grid built-in row virtualization)
 - WebSocket delta updates (only broadcast changed tokens)
 - Mobile responsive (media queries + bottom nav with all tabs)
+- Loading skeleton (shimmer animation while data loads)
+- Keyboard shortcuts (Ctrl+A/F/E/D, F5, Escape)
+- CSV bulk upload (upload CSV to add multiple stocks at once)
+- Performance monitoring (/api/metrics endpoint)
 
-**Not started (2/12):**
+**Remaining (from original 12):**
 - Backtesting
 - Voice commands
 
-See `improvements.md` for the full detailed prompt/spec.
+See `improvements.md` and `improvementsv2.md` for full detailed specs.
 
 ---
 
