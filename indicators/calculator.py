@@ -72,20 +72,24 @@ def calculate_all_indicators(candles: List, live_quote: dict, prev_day: dict = N
             ema = (price - ema) * multiplier + ema
         result["ema10"] = ema
 
-    # RSI (14-period)
+    # RSI (14-period) — Wilder's smoothing
     if len(closes) >= 15:
-        gains = []
-        losses = []
+        total_gain = 0.0
+        total_loss = 0.0
         for i in range(-14, 0):
             change = closes[i] - closes[i-1]
             if change > 0:
-                gains.append(change)
+                total_gain += change
             else:
-                losses.append(abs(change))
-        if gains and losses:
-            avg_gain = sum(gains) / len(gains)
-            avg_loss = sum(losses) / len(losses)
-            rs = avg_gain / avg_loss if avg_loss > 0 else 100
+                total_loss += abs(change)
+        avg_gain = total_gain / 14
+        avg_loss = total_loss / 14
+        if avg_loss == 0:
+            result["rsi14"] = 100.0  # All gains → RSI = 100
+        elif avg_gain == 0:
+            result["rsi14"] = 0.0    # All losses → RSI = 0
+        else:
+            rs = avg_gain / avg_loss
             result["rsi14"] = 100 - (100 / (1 + rs))
 
     # VWAP (26-period) - use rupee prices consistent with other indicators

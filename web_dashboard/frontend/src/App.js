@@ -48,13 +48,13 @@ const getUserId = () => {
   return uid;
 };
 
-// WebSocket connection
-let ws = null;
-let reconnectAttempts = 0;
-let reconnectTimeoutId = null;
 const MAX_RECONNECT_DELAY = 30000;
 
 function App() {
+  // WebSocket refs (persist across renders without triggering re-renders)
+  const wsRef = useRef(null);
+  const reconnectRef = useRef({ attempts: 0, timeoutId: null });
+
   // State
   const [theme, setTheme] = useState(() => localStorage.getItem('gt_theme') || 'dark');
   const [activeSheet, setActiveSheet] = useState('live');
@@ -206,9 +206,9 @@ function App() {
     fetchTrades();
 
     return () => {
-      if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
-      if (ws) {
-        ws.close();
+      if (reconnectRef.current.timeoutId) clearTimeout(reconnectRef.current.timeoutId);
+      if (wsRef.current) {
+        wsRef.current.close();
       }
     };
   }, []);
@@ -247,8 +247,8 @@ function App() {
       // F5: Refresh data
       if (e.key === 'F5') {
         e.preventDefault();
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
         }
       }
       // Escape: Close modals
@@ -260,7 +260,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [ws, currentWatchlist, theme]);
+  }, [currentWatchlist, theme]);
 
   // Persist custom lines to localStorage
   useEffect(() => {
@@ -279,21 +279,21 @@ function App() {
   const connectWebSocket = () => {
     const userId = getUserId();
     const wsUrl = `${getWsUrl()}/ws?user_id=${userId}`;
-    ws = new WebSocket(wsUrl);
+    wsRef.current = new WebSocket(wsUrl);
 
-    ws.onopen = () => {
+    wsRef.current.onopen = () => {
       setConnected(true);
       setConnectionStatus('connected');
       setReconnectCountdown(0);
-      reconnectAttempts = 0;
+      reconnectRef.current.attempts = 0;
       addToast('Connected to server', 'success');
     };
 
-    ws.onclose = () => {
+    wsRef.current.onclose = () => {
       setConnected(false);
       setConnectionStatus('reconnecting');
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
-      reconnectAttempts++;
+      const delay = Math.min(1000 * Math.pow(2, reconnectRef.current.attempts), MAX_RECONNECT_DELAY);
+      reconnectRef.current.attempts++;
       addToast('Disconnected from server', 'error');
 
       // Show countdown
@@ -305,21 +305,27 @@ function App() {
         if (remaining <= 0) clearInterval(countdownInterval);
       }, 1000);
 
-      if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
-      reconnectTimeoutId = setTimeout(() => {
+      if (reconnectRef.current.timeoutId) clearTimeout(reconnectRef.current.timeoutId);
+      reconnectRef.current.timeoutId = setTimeout(() => {
         clearInterval(countdownInterval);
         connectWebSocket();
       }, delay);
     };
 
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data);
+    wsRef.current.onmessage = (event) => {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch (e) {
+        console.error('Failed to parse WebSocket message:', e);
+        return;
+      }
 
       switch (message.type) {
         case 'ping':
           // Respond to server heartbeat
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'pong' }));
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'pong' }));
           }
           break;
         case 'init':
@@ -745,8 +751,8 @@ function App() {
       });
 
       // Trigger refresh via WebSocket
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
       }
     } catch (e) {
       const err = parseError(e, 'add stock');
@@ -798,8 +804,8 @@ function App() {
       }
 
       // Trigger refresh
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
       }
     } catch (e) {
       addToast('Failed to upload CSV', 'error');
@@ -858,8 +864,8 @@ function App() {
 
   // Refresh data
   const handleRefresh = () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'subscribe', watchlist: currentWatchlist, action: 'refresh' }));
       addToast('Refreshing data...', 'success');
     }
   };
@@ -867,8 +873,8 @@ function App() {
   // Switch watchlist
   const handleSwitchWatchlist = (name) => {
     setCurrentWatchlist(name);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'subscribe', watchlist: name, action: 'refresh' }));
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'subscribe', watchlist: name, action: 'refresh' }));
     }
     addToast(`Switched to ${name}`, 'success');
   };
@@ -934,8 +940,8 @@ function App() {
 
   // Manual reconnect
   const manualReconnect = () => {
-    if (reconnectTimeoutId) clearTimeout(reconnectTimeoutId);
-    reconnectAttempts = 0;
+    if (reconnectRef.current.timeoutId) clearTimeout(reconnectRef.current.timeoutId);
+    reconnectRef.current.attempts = 0;
     setConnectionStatus('reconnecting');
     setReconnectCountdown(0);
     connectWebSocket();

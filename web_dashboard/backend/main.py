@@ -457,6 +457,12 @@ async def poll_data():
             state.last_update = time.time()
             state.metrics["poll_cycles"] += 1
 
+            # Purge stale alert cooldown entries (>1 hour old)
+            now = time.time()
+            stale_keys = [k for k, v in state.alert_cooldown.items() if now - v > 3600]
+            for k in stale_keys:
+                del state.alert_cooldown[k]
+
             # Find changed tokens by comparing with last broadcast
             changed_tokens = []
             for token, row in state.token_data_cache.items():
@@ -525,7 +531,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"Seeded default watchlist with {len(state.watchlists['Default'])} stocks")
 
     # Load portfolio
-    _load_portfolio()
+    await _load_portfolio()
 
     # Start polling
     state.running = True
@@ -546,7 +552,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trading Dashboard API", lifespan=lifespan)
 
 # CORS - configurable via env var for cloud deployment
-cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+cors_origins = os.environ.get(
+    "CORS_ORIGINS",
+    "https://gt-trading-companion.tgayake3142.workers.dev,http://localhost:3000,http://localhost:8000"
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1076,7 +1085,7 @@ async def add_holding(holding: PortfolioHolding):
         logger.error(f"Error fetching price for portfolio holding {holding.token}: {e}")
 
     # Save to file
-    _save_portfolio()
+    await _save_portfolio()
     return {"success": True, "holdings": len(state.portfolio)}
 
 
@@ -1104,7 +1113,7 @@ async def remove_holding(token: str, quantity: int = Query(0)):
                     "timestamp": datetime.now().isoformat()
                 })
             break
-    _save_portfolio()
+    await _save_portfolio()
     return {"success": True}
 
 
@@ -1114,28 +1123,34 @@ async def get_trades(limit: int = Query(50)):
     return {"trades": state.trades[-limit:]}
 
 
-def _save_portfolio():
-    """Save portfolio to local file"""
-    try:
-        portfolio_path = os.path.join(project_root, "..", "web_dashboard", "backend", "portfolio.json")
-        with open(portfolio_path, 'w') as f:
-            json.dump({"holdings": state.portfolio, "trades": state.trades}, f, indent=2)
-    except Exception as e:
-        logger.error(f"Error saving portfolio: {e}")
+async def _save_portfolio():
+    """Save portfolio to local file (non-blocking)"""
+    def _write():
+        try:
+            portfolio_path = os.path.join(project_root, "..", "web_dashboard", "backend", "portfolio.json")
+            with open(portfolio_path, 'w') as f:
+                json.dump({"holdings": state.portfolio, "trades": state.trades}, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving portfolio: {e}")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(state.executor, _write)
 
 
-def _load_portfolio():
-    """Load portfolio from local file"""
-    try:
-        portfolio_path = os.path.join(project_root, "..", "web_dashboard", "backend", "portfolio.json")
-        if os.path.exists(portfolio_path):
-            with open(portfolio_path, 'r') as f:
-                data = json.load(f)
-                state.portfolio = data.get("holdings", [])
-                state.trades = data.get("trades", [])
-                logger.info(f"Loaded portfolio: {len(state.portfolio)} holdings")
-    except Exception as e:
-        logger.error(f"Error loading portfolio: {e}")
+async def _load_portfolio():
+    """Load portfolio from local file (non-blocking)"""
+    def _read():
+        try:
+            portfolio_path = os.path.join(project_root, "..", "web_dashboard", "backend", "portfolio.json")
+            if os.path.exists(portfolio_path):
+                with open(portfolio_path, 'r') as f:
+                    data = json.load(f)
+                    state.portfolio = data.get("holdings", [])
+                    state.trades = data.get("trades", [])
+                    logger.info(f"Loaded portfolio: {len(state.portfolio)} holdings")
+        except Exception as e:
+            logger.error(f"Error loading portfolio: {e}")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(state.executor, _read)
 
 
 if __name__ == "__main__":

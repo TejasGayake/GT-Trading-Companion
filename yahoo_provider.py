@@ -12,12 +12,13 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict
 import time
 import threading
+import random
 
 from utils.logger import get_logger
 
 
 def _retry_on_rate_limit(max_retries: int = 3, base_delay: float = 2.0):
-    """Decorator that retries Yahoo API calls with exponential backoff on 429/rate limit errors."""
+    """Decorator that retries Yahoo API calls with exponential backoff + jitter on 429/rate limit errors."""
     def decorator(func):
         def wrapper(*args, **kwargs):
             self = args[0]  # First arg is self (YahooFinanceProvider)
@@ -29,8 +30,8 @@ def _retry_on_rate_limit(max_retries: int = 3, base_delay: float = 2.0):
                     error_str = str(e).lower()
                     if "too many requests" in error_str or "429" in error_str or "rate limit" in error_str:
                         last_error = e
-                        delay = base_delay * (2 ** attempt)  # 2s, 4s, 8s
-                        self.logger.warning(f"Rate limited on {func.__name__}, retry {attempt+1}/{max_retries} after {delay:.0f}s")
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)  # jitter
+                        self.logger.warning(f"Rate limited on {func.__name__}, retry {attempt+1}/{max_retries} after {delay:.1f}s")
                         time.sleep(delay)
                     else:
                         raise  # Non-rate-limit error, propagate immediately
@@ -60,8 +61,18 @@ class YahooFinanceProvider:
         self.CACHE_DURATION = 120  # 2 minutes for candles
         self.QUOTE_CACHE_DURATION = 10  # 10 seconds for quotes (was 2s, caused excessive API hits)
         self.PREV_DAY_CACHE_DURATION = 3600  # 1 hour for previous day data
+        self.MAX_CACHE_SIZE = 500  # Max entries per cache before eviction
 
         self.logger.info("YahooFinanceProvider initialized (no API key needed)")
+
+    def _evict_stale(self, cache: Dict[str, tuple], max_size: int):
+        """Evict oldest entries when cache exceeds max_size."""
+        if len(cache) <= max_size:
+            return
+        # Sort by timestamp (oldest first) and remove excess
+        sorted_keys = sorted(cache.keys(), key=lambda k: cache[k][0])
+        for key in sorted_keys[:len(cache) - max_size]:
+            del cache[key]
 
     def set_symbol_mapping(self, mapping: Dict[str, str]):
         """Set the token to symbol mapping"""
@@ -128,6 +139,7 @@ class YahooFinanceProvider:
 
             # Cache the result
             self._candle_cache[cache_key] = (time.time(), candles)
+            self._evict_stale(self._candle_cache, self.MAX_CACHE_SIZE)
 
             self.logger.info(f"Got {len(candles)} candles for {token}")
             return candles
@@ -176,6 +188,7 @@ class YahooFinanceProvider:
 
             # Cache the result
             self._prev_day_cache[cache_key] = (time.time(), result)
+            self._evict_stale(self._prev_day_cache, self.MAX_CACHE_SIZE)
             return result
 
         except Exception as e:
@@ -286,6 +299,7 @@ class YahooFinanceProvider:
 
             # Cache the result
             self._quote_cache[token] = (time.time(), quote)
+            self._evict_stale(self._quote_cache, self.MAX_CACHE_SIZE)
 
             return quote
 
@@ -293,6 +307,7 @@ class YahooFinanceProvider:
             self.logger.error(f"Error fetching quote for {token}: {e}")
             return None
 
+    @_retry_on_rate_limit(max_retries=3, base_delay=2.0)
     def get_quotes_batch(self, tokens: List[str]) -> Dict[str, Dict]:
         """
         Get quotes for multiple tokens in a single yfinance call.
@@ -383,6 +398,7 @@ class YahooFinanceProvider:
                 except Exception as e:
                     self.logger.error(f"Error parsing batch data for {token}: {e}")
 
+            self._evict_stale(self._quote_cache, self.MAX_CACHE_SIZE)
             self.logger.info(f"Batch quote fetch complete: {len(results)}/{len(tokens)} tokens")
 
         except Exception as e:
@@ -390,6 +406,7 @@ class YahooFinanceProvider:
 
         return results
 
+    @_retry_on_rate_limit(max_retries=3, base_delay=2.0)
     def get_prev_day_batch(self, tokens: List[str]) -> Dict[str, Optional[Dict]]:
         """
         Get previous day OHLC for multiple tokens in one yfinance call.
@@ -459,6 +476,7 @@ class YahooFinanceProvider:
                 except Exception as e:
                     self.logger.error(f"Error parsing prev_day batch for {token}: {e}")
 
+            self._evict_stale(self._prev_day_cache, self.MAX_CACHE_SIZE)
             self.logger.info(f"Batch prev_day fetch complete: {len(results)}/{len(tokens)} tokens")
 
         except Exception as e:

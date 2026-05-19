@@ -29,21 +29,27 @@ class FileWatchlistStorage(WatchlistStorage):
         self._lock = asyncio.Lock()
 
     async def load(self, user_id: str) -> Dict[str, List[str]]:
-        try:
-            if os.path.exists(self.filepath):
-                with open(self.filepath, 'r') as f:
-                    return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading watchlist from file: {e}")
-        return {"Default": []}
+        def _read():
+            try:
+                if os.path.exists(self.filepath):
+                    with open(self.filepath, 'r') as f:
+                        return json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading watchlist from file: {e}")
+            return {"Default": []}
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _read)
 
     async def save(self, user_id: str, watchlists: Dict[str, List[str]]) -> None:
         async with self._lock:
-            try:
-                with open(self.filepath, 'w') as f:
-                    json.dump(watchlists, f)
-            except Exception as e:
-                logger.error(f"Error saving watchlist to file: {e}")
+            def _write():
+                try:
+                    with open(self.filepath, 'w') as f:
+                        json.dump(watchlists, f)
+                except Exception as e:
+                    logger.error(f"Error saving watchlist to file: {e}")
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _write)
 
 
 class SupabaseWatchlistStorage(WatchlistStorage):
