@@ -294,14 +294,175 @@ class YahooFinanceProvider:
             return None
 
     def get_quotes_batch(self, tokens: List[str]) -> Dict[str, Dict]:
-        """Get quotes for multiple tokens efficiently"""
+        """
+        Get quotes for multiple tokens in a single yfinance call.
+
+        Uses yf.download() which makes one HTTP request for all symbols,
+        instead of one request per symbol. This reduces 13 sequential calls
+        to 1 batch call.
+        """
+        if not tokens:
+            return {}
+
         results = {}
 
-        # Use threading for parallel fetch (optional optimization)
+        # Split into fresh-cached and need-fetch
+        to_fetch = []
         for token in tokens:
-            quote = self.get_live_quote(token)
-            if quote:
-                results[token] = quote
+            cached = self.get_cached_quote(token)
+            if cached:
+                results[token] = cached
+            else:
+                to_fetch.append(token)
+
+        if not to_fetch:
+            return results
+
+        try:
+            # Build symbol list for batch download
+            symbols = [self.get_yahoo_symbol(t) for t in to_fetch]
+            symbol_to_token = {self.get_yahoo_symbol(t): t for t in to_fetch}
+
+            self.logger.info(f"Batch fetching quotes for {len(symbols)} symbols")
+
+            # Single HTTP call for all symbols
+            df = yf.download(
+                symbols,
+                period="2d",
+                interval="1d",
+                group_by="ticker",
+                progress=False,
+                threads=True
+            )
+
+            if df.empty:
+                self.logger.warning("Batch download returned empty data")
+                return results
+
+            for yahoo_sym, token in symbol_to_token.items():
+                try:
+                    if len(symbols) == 1:
+                        # yf.download returns flat columns for single symbol
+                        ticker_df = df
+                    else:
+                        ticker_df = df[yahoo_sym]
+
+                    if ticker_df.empty:
+                        continue
+
+                    last_row = ticker_df.iloc[-1]
+                    prev_row = ticker_df.iloc[-2] if len(ticker_df) > 1 else last_row
+
+                    current_price = float(last_row.get("Close", 0) or 0)
+                    open_price = float(last_row.get("Open", current_price) or current_price)
+                    high_price = float(last_row.get("High", current_price) or current_price)
+                    low_price = float(last_row.get("Low", current_price) or current_price)
+                    close_price = float(prev_row.get("Close", current_price) or current_price)
+                    volume = int(last_row.get("Volume", 0) or 0)
+
+                    if current_price == 0:
+                        continue
+
+                    quote = {
+                        "token": token,
+                        "last_traded_price": int(current_price * 100),
+                        "volume_trade_for_the_day": volume,
+                        "exchange_timestamp": int(time.time() * 1000),
+                        "open_price_of_the_day": int(open_price * 100),
+                        "high_price_of_the_day": int(high_price * 100),
+                        "low_price_of_the_day": int(low_price * 100),
+                        "closed_price": int(close_price * 100),
+                        "average_traded_price": int(current_price * 100),
+                        "52_week_high_price": int(high_price * 100),
+                        "52_week_low_price": int(low_price * 100)
+                    }
+
+                    self._quote_cache[token] = (time.time(), quote)
+                    results[token] = quote
+
+                except Exception as e:
+                    self.logger.error(f"Error parsing batch data for {token}: {e}")
+
+            self.logger.info(f"Batch quote fetch complete: {len(results)}/{len(tokens)} tokens")
+
+        except Exception as e:
+            self.logger.error(f"Batch quote fetch failed: {e}")
+
+        return results
+
+    def get_prev_day_batch(self, tokens: List[str]) -> Dict[str, Optional[Dict]]:
+        """
+        Get previous day OHLC for multiple tokens in one yfinance call.
+
+        Uses yf.download() with 2d period to get yesterday's data.
+        Results are cached for 1 hour.
+        """
+        if not tokens:
+            return {}
+
+        results = {}
+
+        # Split into fresh-cached and need-fetch
+        to_fetch = []
+        for token in tokens:
+            cached = self.get_cached_prev_day(token)
+            if cached:
+                results[token] = cached
+            else:
+                to_fetch.append(token)
+
+        if not to_fetch:
+            return results
+
+        try:
+            symbols = [self.get_yahoo_symbol(t) for t in to_fetch]
+            symbol_to_token = {self.get_yahoo_symbol(t): t for t in to_fetch}
+
+            self.logger.info(f"Batch fetching prev_day for {len(symbols)} symbols")
+
+            df = yf.download(
+                symbols,
+                period="2d",
+                interval="1d",
+                group_by="ticker",
+                progress=False,
+                threads=True
+            )
+
+            if df.empty:
+                return results
+
+            for yahoo_sym, token in symbol_to_token.items():
+                try:
+                    if len(symbols) == 1:
+                        ticker_df = df
+                    else:
+                        ticker_df = df[yahoo_sym]
+
+                    if ticker_df.empty or len(ticker_df) < 1:
+                        continue
+
+                    prev_row = ticker_df.iloc[0] if len(ticker_df) > 1 else ticker_df.iloc[-1]
+
+                    result = {
+                        'open': int(float(prev_row.get("Open", 0) or 0) * 100),
+                        'high': int(float(prev_row.get("High", 0) or 0) * 100),
+                        'low': int(float(prev_row.get("Low", 0) or 0) * 100),
+                        'close': int(float(prev_row.get("Close", 0) or 0) * 100),
+                        'volume': int(prev_row.get("Volume", 0) or 0)
+                    }
+
+                    if result['close'] > 0:
+                        self._prev_day_cache[f"prev_day_{token}"] = (time.time(), result)
+                        results[token] = result
+
+                except Exception as e:
+                    self.logger.error(f"Error parsing prev_day batch for {token}: {e}")
+
+            self.logger.info(f"Batch prev_day fetch complete: {len(results)}/{len(tokens)} tokens")
+
+        except Exception as e:
+            self.logger.error(f"Batch prev_day fetch failed: {e}")
 
         return results
 

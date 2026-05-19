@@ -342,42 +342,58 @@ def get_adaptive_interval() -> float:
 
 
 async def poll_data():
-    """Background task to poll data and broadcast"""
+    """Background task to poll data and broadcast.
+
+    Uses batched yfinance calls — quotes and prev_day are fetched for all
+    tokens in a single HTTP request each, instead of one request per token.
+    This reduces a poll cycle from ~30s (sequential) to ~3-5s (batched).
+    """
+    loop = asyncio.get_event_loop()
+
     while state.running:
         try:
             tokens = state.watchlists.get("Default", [])[:200]  # Limit to 200
 
-            loop = asyncio.get_event_loop()
+            if not tokens:
+                await asyncio.sleep(5)
+                continue
 
+            # --- Batch 1: Fetch all quotes in one yfinance call ---
+            try:
+                quotes = await loop.run_in_executor(
+                    state.executor, state.provider.get_quotes_batch, tokens
+                )
+            except Exception as e:
+                logger.error(f"Batch quote fetch error: {e}")
+                quotes = {}
+
+            # --- Batch 2: Fetch all prev_day data in one yfinance call ---
+            try:
+                prev_days = await loop.run_in_executor(
+                    state.executor, state.provider.get_prev_day_batch, tokens
+                )
+            except Exception as e:
+                logger.error(f"Batch prev_day fetch error: {e}")
+                prev_days = {}
+
+            # --- Process each token (candles are cached individually) ---
             for token in tokens:
                 try:
-                    # Get live quote — always fetch (short cache, needs freshness)
-                    await state.rate_limiter.acquire()
-                    quote = await loop.run_in_executor(
-                        state.executor, state.provider.get_live_quote, token
-                    )
+                    quote = quotes.get(token)
                     if not quote:
-                        # Update error in cache if token exists
                         if token in state.token_data_cache:
                             state.token_data_cache[token]["last_error"] = "No quote data"
                             state.token_data_cache[token]["error_count"] = state.token_data_cache[token].get("error_count", 0) + 1
                         continue
 
-                    # Get candles — only fetch when cache is stale (saves API calls)
+                    # Candles — only fetch individually when cache is stale
                     candles = state.provider.get_cached_candles(token)
                     if candles is None:
-                        await state.rate_limiter.acquire()
                         candles = await loop.run_in_executor(
                             state.executor, state.provider.get_candles, token, 5, "5m"
                         )
 
-                    # Get previous day data — only fetch when cache is stale (1h cache)
-                    prev_day = state.provider.get_cached_prev_day(token)
-                    if prev_day is None:
-                        await state.rate_limiter.acquire()
-                        prev_day = await loop.run_in_executor(
-                            state.executor, state.provider.get_previous_day_candles, token
-                        )
+                    prev_day = prev_days.get(token)
 
                     # Calculate indicators
                     indicators = calculate_all_indicators(candles, quote, prev_day)
@@ -401,15 +417,12 @@ async def poll_data():
 
                     # Check for new alerts with cooldown
                     if row.get("alert"):
-                        # Extract alert type from condition string (e.g., "VOLUME SPIKE" from "VOLUME SPIKE - 3.2x")
                         alert_type = row["alert"].split(" - ")[0].split(":")[0].strip()
                         cooldown_key = f"{token}:{alert_type}"
                         now = time.time()
 
-                        # Check cooldown
                         last_triggered = state.alert_cooldown.get(cooldown_key, 0)
                         if now - last_triggered > state.alert_cooldown_seconds:
-                            # Update cooldown
                             state.alert_cooldown[cooldown_key] = now
 
                             state.alerts.append({
@@ -423,11 +436,9 @@ async def poll_data():
                                 "status": "active"
                             })
 
-                            # Cap alerts to prevent memory leak
                             if len(state.alerts) > 1000:
                                 state.alerts = state.alerts[-500:]
 
-                            # Broadcast alert
                             await state.broadcast({
                                 "type": "alert",
                                 "data": state.alerts[-1]
@@ -435,7 +446,6 @@ async def poll_data():
 
                 except Exception as e:
                     logger.error(f"Error processing {token}: {e}")
-                    # Track error in cache
                     if token in state.token_data_cache:
                         state.token_data_cache[token]["last_error"] = str(e)
                         state.token_data_cache[token]["error_count"] = state.token_data_cache[token].get("error_count", 0) + 1
