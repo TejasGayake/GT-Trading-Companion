@@ -315,65 +315,68 @@ def is_market_open() -> bool:
 
 
 def get_adaptive_interval() -> float:
-    """Calculate poll interval based on market hours and volatility"""
+    """Calculate pause between poll cycles.
+
+    The batch fetch itself takes 5-8s, so the interval is just a brief
+    breathing room for the event loop — not the main timing mechanism.
+    """
     if not is_market_open():
         return 30.0  # Slow polling when market closed
 
-    # Calculate volatility from recent price changes
-    changes = []
-    for data in state.token_data_cache.values():
-        change_pct = data.get("change_percent", 0)
-        if change_pct is not None:
-            changes.append(abs(change_pct))
-
-    if not changes:
-        return config.POLL_INTERVAL
-
-    avg_change = sum(changes) / len(changes)
-
-    if avg_change > 2.0:    # High volatility
-        return 2.0
-    elif avg_change > 1.0:  # Medium volatility
-        return 3.0
-    elif avg_change > 0.5:  # Low volatility
-        return 5.0
-    else:                   # Very quiet
-        return 10.0
+    # Minimal pause — the real delay is the yfinance batch call time
+    return 1.0
 
 
 async def poll_data():
     """Background task to poll data and broadcast.
 
-    Uses batched yfinance calls — quotes and prev_day are fetched for all
-    tokens in a single HTTP request each, instead of one request per token.
-    This reduces a poll cycle from ~30s (sequential) to ~3-5s (batched).
+    Uses batched yfinance calls with concurrent execution:
+    - Quotes: batch fetched every cycle (~6s, one HTTP call for all tokens)
+    - Prev_day: batch fetched every 10 cycles (~1h cache, separate call)
+    - Candles: fetched individually when cache stale (2min cache)
+
+    Quotes and prev_day run concurrently when both are needed.
+    Results are broadcast immediately after processing.
     """
     loop = asyncio.get_event_loop()
+    cycle_count = 0
 
     while state.running:
         try:
             tokens = state.watchlists.get("Default", [])[:200]  # Limit to 200
 
             if not tokens:
-                await asyncio.sleep(5)
+                await asyncio.sleep(3)
                 continue
 
-            # --- Batch 1: Fetch all quotes in one yfinance call ---
-            try:
-                quotes = await loop.run_in_executor(
+            cycle_count += 1
+
+            # --- Run batch calls concurrently ---
+            # Quotes every cycle, prev_day every 10 cycles
+            fetch_prev_day = (cycle_count % 10 == 1) or cycle_count == 1
+
+            if fetch_prev_day:
+                # Run both batch calls concurrently
+                quote_task = loop.run_in_executor(
                     state.executor, state.provider.get_quotes_batch, tokens
                 )
-            except Exception as e:
-                logger.error(f"Batch quote fetch error: {e}")
-                quotes = {}
-
-            # --- Batch 2: Fetch all prev_day data in one yfinance call ---
-            try:
-                prev_days = await loop.run_in_executor(
+                prev_task = loop.run_in_executor(
                     state.executor, state.provider.get_prev_day_batch, tokens
                 )
-            except Exception as e:
-                logger.error(f"Batch prev_day fetch error: {e}")
+                try:
+                    quotes, prev_days = await asyncio.gather(quote_task, prev_task)
+                except Exception as e:
+                    logger.error(f"Concurrent batch fetch error: {e}")
+                    quotes, prev_days = {}, {}
+            else:
+                # Only fetch quotes (prev_day is cached for 1h)
+                try:
+                    quotes = await loop.run_in_executor(
+                        state.executor, state.provider.get_quotes_batch, tokens
+                    )
+                except Exception as e:
+                    logger.error(f"Batch quote fetch error: {e}")
+                    quotes = {}
                 prev_days = {}
 
             # --- Process each token (candles are cached individually) ---
